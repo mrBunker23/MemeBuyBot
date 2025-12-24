@@ -120,6 +120,50 @@ class StateService {
   getAllPositions(): Record<string, Position> {
     return this.state.positions;
   }
+
+  getActivePositions(): Record<string, Position> {
+    const activePositions: Record<string, Position> = {};
+    for (const [mint, position] of Object.entries(this.state.positions)) {
+      if (!position.paused) {
+        activePositions[mint] = position;
+      }
+    }
+    return activePositions;
+  }
+
+  pausePosition(mint: string): void {
+    const pos = this.state.positions[mint];
+    if (pos && !pos.paused) {
+      pos.paused = true;
+      pos.pausedAt = new Date().toISOString();
+      pos.lastUpdated = new Date().toISOString();
+      this.saveState();
+    }
+  }
+
+  reactivatePosition(mint: string, newEntryPrice: number): void {
+    const pos = this.state.positions[mint];
+    if (pos && pos.paused) {
+      const now = new Date().toISOString();
+
+      // Limpar dados de performance anterior
+      pos.paused = false;
+      pos.pausedAt = undefined;
+      pos.entryUsd = newEntryPrice;
+      pos.currentPrice = newEntryPrice;
+      pos.highestPrice = newEntryPrice;
+      pos.highestMultiple = 1;
+      pos.lastUpdated = now;
+      pos.sold = { tp1: false, tp2: false, tp3: false, tp4: false };
+      pos.priceHistory = [{
+        timestamp: now,
+        price: newEntryPrice,
+        multiple: 1
+      }];
+
+      this.saveState();
+    }
+  }
 }
 
 export const stateService = new StateService();

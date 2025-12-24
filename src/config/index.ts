@@ -8,13 +8,20 @@ function getEnv(key: string, defaultValue?: string): string {
   return value || defaultValue!;
 }
 
+// Função para carregar múltiplas API keys do Jupiter (separadas por vírgula)
+function getJupiterApiKeys(): string[] {
+  const keys = getEnv('JUP_API_KEY');
+  return keys.split(',').map(k => k.trim()).filter(k => k.length > 0);
+}
+
 export const config: Config = {
   siteUrl: 'https://gangue.macaco.club/ferramentas/tokenfinder/',
   baseUrl: 'https://gangue.macaco.club/',
   solMint: 'So11111111111111111111111111111111111111112',
 
   privateKey: getEnv('PRIVATE_KEY'),
-  jupApiKey: getEnv('JUP_API_KEY'),
+  jupApiKey: getEnv('JUP_API_KEY'), // Mantém compatibilidade
+  jupApiKeys: getJupiterApiKeys(), // Nova: array de keys
   rpcUrl: getEnv('RPC_URL', 'https://api.mainnet-beta.solana.com'),
 
   amountSol: Number(getEnv('AMOUNT_SOL', '0.10')),
@@ -60,6 +67,7 @@ export function logConfig(): void {
   console.log('📉 Check de preço:', config.priceCheckSeconds, 's');
   console.log('🎯 Score mínimo:', config.minScore > 0 ? config.minScore : 'Sem filtro');
   console.log('🧠 Headless:', config.headless);
+  console.log(`🔑 API Keys Jupiter: ${config.jupApiKeys.length} key${config.jupApiKeys.length > 1 ? 's' : ''} (rotação ativada)`);
   console.log('\n📊 Estratégia de Take Profit:');
   STAGES.forEach(stage => {
     console.log(`   ${stage.name.toUpperCase()}: ${stage.multiple}x → vende ${stage.sellPercent}%`);

@@ -3,8 +3,39 @@ import { config, logConfig } from './config';
 import { scraperService } from './services/scraper.service';
 import { tradingService } from './services/trading.service';
 import { stateService } from './services/state.service';
+import { solanaService } from './services/solana.service';
+import { jupiterService } from './services/jupiter.service';
 import { logger } from './utils/logger';
 import { statusMonitor } from './utils/status-monitor';
+
+async function checkPausedPositions(): Promise<void> {
+  const allPositions = stateService.getAllPositions();
+
+  for (const [mint, position] of Object.entries(allPositions)) {
+    if (!position.paused) continue;
+
+    try {
+      // Verificar se agora tem saldo
+      const balance = await solanaService.getTokenBalance(mint);
+
+      if (balance.amount > 0n) {
+        // Reativar posição - obter preço atual como novo entry
+        const currentPrice = await jupiterService.getUsdPrice(mint);
+        if (currentPrice) {
+          stateService.reactivatePosition(mint, currentPrice);
+          logger.success(`${position.ticker} reativado - novo entry: $${currentPrice.toFixed(6)}`);
+
+          // Iniciar monitoramento novamente
+          tradingService
+            .monitorPosition(mint)
+            .catch((e) => logger.error(`Monitor ${position.ticker}`, e));
+        }
+      }
+    } catch (error) {
+      logger.error(`Erro verificando posição pausada ${position.ticker}`, error);
+    }
+  }
+}
 
 async function main(): Promise<void> {
   logConfig();
@@ -13,23 +44,30 @@ async function main(): Promise<void> {
   await scraperService.initialize();
 
   // Iniciar monitor de status visual
-  statusMonitor.startAutoRefresh(5000); // Atualiza a cada 5 segundos
   statusMonitor.printStatus(); // Mostra imediatamente
+  // Auto-refresh a cada 30s como backup (a tela atualiza em tempo real nas mudanças)
+  statusMonitor.startAutoRefresh(30000);
 
-  // Retomar monitoramento de posições existentes
-  const positions = stateService.getAllPositions();
-  for (const mint of Object.keys(positions)) {
+  // Retomar monitoramento apenas de posições ativas
+  const activePositions = stateService.getActivePositions();
+  for (const mint of Object.keys(activePositions)) {
     logger.info(`Retomando monitor: ${mint.substring(0, 8)}...`);
     tradingService
       .monitorPosition(mint)
       .catch((e) => logger.error(`Monitor ${mint.substring(0, 8)}`, e));
   }
 
+  // Verificar posições pausadas pela primeira vez
+  await checkPausedPositions();
+
   // Loop principal de scraping
   logger.info(`Loop de scraping iniciado (intervalo: ${config.checkIntervalMs}ms)`);
 
   setInterval(async () => {
     try {
+      // Verificar posições pausadas que podem ser reativadas
+      await checkPausedPositions();
+
       const tokens = await scraperService.extractTokens();
 
       for (const token of tokens) {
@@ -57,7 +95,7 @@ async function main(): Promise<void> {
         // Só marca como visto quando compra
         stateService.markAsSeen(mint);
 
-        const bought = await tradingService.buyToken(mint);
+        const bought = await tradingService.buyToken(mint, token.ticker);
         if (!bought) continue;
 
         const entryUsd = await tradingService.getEntryPrice(mint);

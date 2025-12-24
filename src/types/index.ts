@@ -4,6 +4,7 @@ export interface Config {
   solMint: string;
   privateKey: string;
   jupApiKey: string;
+  jupApiKeys: string[]; // Array de múltiplas API keys para rotação
   rpcUrl: string;
   amountSol: number;
   slippageBps: number;
@@ -49,6 +50,8 @@ export interface Position {
     tp4?: boolean;
   };
   priceHistory: PriceHistory[];
+  paused?: boolean; // Indica se o monitoramento está pausado (saldo = 0)
+  pausedAt?: string; // Timestamp quando foi pausado
 }
 
 export interface State {

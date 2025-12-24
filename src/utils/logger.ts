@@ -25,7 +25,7 @@ class Logger {
   private getCurrentLogFile(): string {
     if (!this.currentLogFile) {
       const date = new Date().toISOString().split('T')[0];
-      const time = new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
+      const time = new Date().toTimeString().split(' ')[0]?.replace(/:/g, '-') || '';
       this.currentLogFile = path.join(this.logDir, `bot-${date}-${time}.log`);
     }
     return this.currentLogFile;

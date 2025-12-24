@@ -13,12 +13,23 @@ interface TokenStatus {
   balance: string | null;
 }
 
+interface Transaction {
+  type: 'COMPRA' | 'VENDA';
+  ticker: string;
+  amount: string;
+  timestamp: Date;
+  success: boolean;
+  stage?: string; // Para vendas (TP1, TP2, etc)
+}
+
 class StatusMonitor {
   private tokens: Map<string, TokenStatus> = new Map();
+  private transactions: Transaction[] = [];
   private lastApiCall: Date | null = null;
   private apiCallCount: number = 0;
+  private readonly MAX_TRANSACTIONS = 10;
 
-  updatePrice(mint: string, ticker: string, price: number | null): void {
+  updatePrice(mint: string, ticker: string, price: number | null, immediate: boolean = false): void {
     const existing = this.tokens.get(mint);
 
     if (price !== null) {
@@ -36,9 +47,13 @@ class StatusMonitor {
       soldTPs: existing?.soldTPs || [],
       balance: existing?.balance || null,
     });
+
+    if (immediate) {
+      this.printStatus();
+    }
   }
 
-  updatePosition(mint: string, ticker: string, multiple: number, percentChange: string, soldTPs?: string[], balance?: string): void {
+  updatePosition(mint: string, ticker: string, multiple: number, percentChange: string, soldTPs?: string[], balance?: string, immediate: boolean = true): void {
     const existing = this.tokens.get(mint);
 
     // Verificar se TP4 foi executado e saldo é zero
@@ -49,6 +64,7 @@ class StatusMonitor {
       // Remover do monitoramento - posição finalizada
       this.removeToken(mint);
       logger.info(`${ticker} removido do monitoramento (TP4 completo, saldo zero)`);
+      this.printStatus(); // Atualizar imediatamente
       return;
     }
 
@@ -62,10 +78,43 @@ class StatusMonitor {
       soldTPs: soldTPs || existing?.soldTPs || [],
       balance: balance || existing?.balance || null,
     });
+
+    if (immediate) {
+      this.printStatus();
+    }
   }
 
   removeToken(mint: string): void {
     this.tokens.delete(mint);
+  }
+
+  pauseToken(mint: string): void {
+    const existing = this.tokens.get(mint);
+    if (existing) {
+      logger.info(`${existing.ticker} removido do monitor (posição pausada)`);
+      this.tokens.delete(mint);
+      this.printStatus(); // Atualizar imediatamente
+    }
+  }
+
+  addTransaction(type: 'COMPRA' | 'VENDA', ticker: string, amount: string, success: boolean, stage?: string, immediate: boolean = true): void {
+    this.transactions.unshift({
+      type,
+      ticker,
+      amount,
+      timestamp: new Date(),
+      success,
+      stage
+    });
+
+    // Manter apenas as últimas N transações
+    if (this.transactions.length > this.MAX_TRANSACTIONS) {
+      this.transactions = this.transactions.slice(0, this.MAX_TRANSACTIONS);
+    }
+
+    if (immediate) {
+      this.printStatus();
+    }
   }
 
   printStatus(): void {
@@ -107,9 +156,11 @@ class StatusMonitor {
         colWidths: [12, 25, 12, 14, 10]
       });
 
-      const sortedTokens = Array.from(this.tokens.values()).sort((a, b) =>
-        b.lastUpdate.getTime() - a.lastUpdate.getTime()
-      );
+      // Ordenar por ticker para manter ordem estável (fallback por mint se ticker igual)
+      const sortedTokens = Array.from(this.tokens.values()).sort((a, b) => {
+        const tickerCompare = a.ticker.localeCompare(b.ticker);
+        return tickerCompare !== 0 ? tickerCompare : a.mint.localeCompare(b.mint);
+      });
 
       for (const token of sortedTokens) {
         const timeAgo = Math.floor((now.getTime() - token.lastUpdate.getTime()) / 1000);
@@ -128,8 +179,8 @@ class StatusMonitor {
         let status = '';
         if (token.soldTPs && token.soldTPs.length > 0) {
           // Mostrar apenas o último TP executado
-          const lastTP = token.soldTPs[token.soldTPs.length - 1].toUpperCase();
-          status = chalk.yellow(`✅ ${lastTP}`);
+          const lastTP = token.soldTPs[token.soldTPs.length - 1]?.toUpperCase();
+          status = lastTP ? chalk.yellow(`✅ ${lastTP}`) : chalk.gray('⏳ Aguard.');
         } else {
           status = chalk.gray('⏳ Aguard.');
         }
@@ -147,6 +198,54 @@ class StatusMonitor {
       }
 
       console.log(table.toString());
+    }
+
+    // Tabela de transações
+    console.log('');
+    if (this.transactions.length > 0) {
+      console.log(chalk.bold.magenta(`📜 Últimas Transações (${this.transactions.length}):`));
+
+      const txTable = new Table({
+        head: [
+          chalk.bold('Tipo'),
+          chalk.bold('Ticker'),
+          chalk.bold('Quantidade'),
+          chalk.bold('Status'),
+          chalk.bold('Quando')
+        ],
+        style: {
+          head: [],
+          border: ['magenta']
+        },
+        colWidths: [10, 12, 16, 12, 12]
+      });
+
+      for (const tx of this.transactions) {
+        const timeAgo = Math.floor((now.getTime() - tx.timestamp.getTime()) / 1000);
+        const timeText = timeAgo < 60 ? `${timeAgo}s` : `${Math.floor(timeAgo / 60)}m`;
+
+        // Tipo com cor
+        const typeText = tx.type === 'COMPRA'
+          ? chalk.blue('🔵 COMPRA')
+          : chalk.yellow(`🟡 VENDA${tx.stage ? ` ${tx.stage.toUpperCase()}` : ''}`);
+
+        // Ticker
+        const ticker = tx.ticker.substring(0, 10);
+
+        // Quantidade
+        const amount = tx.amount;
+
+        // Status com ícone
+        const status = tx.success
+          ? chalk.green('✅ OK')
+          : chalk.red('❌ FALHA');
+
+        txTable.push([typeText, ticker, amount, status, timeText]);
+      }
+
+      console.log(txTable.toString());
+    } else {
+      console.log(chalk.gray('📜 Nenhuma transação ainda'));
     }
 
     console.log('');

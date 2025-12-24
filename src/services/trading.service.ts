@@ -6,7 +6,7 @@ import { logger } from '../utils/logger';
 import { statusMonitor } from '../utils/status-monitor';
 
 class TradingService {
-  async buyToken(mint: string): Promise<boolean> {
+  async buyToken(mint: string, ticker?: string): Promise<boolean> {
     const lamports = BigInt(Math.floor(config.amountSol * 1e9));
 
     const result = await jupiterService.executeTrade({
@@ -14,6 +14,10 @@ class TradingService {
       outputMint: mint,
       amountInt: lamports.toString(),
     });
+
+    // Registrar transação
+    const tickerDisplay = ticker || mint.substring(0, 6);
+    statusMonitor.addTransaction('COMPRA', tickerDisplay, `${config.amountSol} SOL`, result.ok);
 
     if (!result.ok) {
       logger.error('Compra falhou');
@@ -24,7 +28,7 @@ class TradingService {
     return true;
   }
 
-  async sellToken(mint: string, amountBaseUnits: bigint): Promise<boolean> {
+  async sellToken(mint: string, amountBaseUnits: bigint, ticker?: string, stage?: string): Promise<boolean> {
     if (amountBaseUnits <= 0n) return false;
 
     const result = await jupiterService.executeTrade({
@@ -32,6 +36,16 @@ class TradingService {
       outputMint: config.solMint,
       amountInt: amountBaseUnits.toString(),
     });
+
+    // Registrar transação com formatação legível
+    const tickerDisplay = ticker || mint.substring(0, 6);
+    // Tentar formatar o valor (assumindo 6-9 decimais)
+    const balance = await solanaService.getTokenBalance(mint);
+    const decimals = balance.decimals || 9;
+    const amountFormatted = (Number(amountBaseUnits) / Math.pow(10, decimals)).toFixed(2);
+    const amountDisplay = `${amountFormatted} tokens`;
+
+    statusMonitor.addTransaction('VENDA', tickerDisplay, amountDisplay, result.ok, stage);
 
     if (!result.ok) {
       logger.error('Venda falhou');
@@ -83,14 +97,25 @@ class TradingService {
       // Verificar se TP4 foi executado ou se saldo é zero
       const balance = await solanaService.getTokenBalance(mint);
 
+      // Se TP4 foi executado e saldo é zero, finalizar monitoramento
       if (pos.sold?.tp4 && balance.amount === 0n) {
         logger.info(`${pos.ticker || mint.substring(0, 6)} - Monitoramento finalizado (TP4 completo)`);
         return;
       }
 
+      // Se saldo é zero mas TP4 não foi executado, pausar posição
+      if (balance.amount === 0n && !pos.sold?.tp4) {
+        stateService.pausePosition(mint);
+        statusMonitor.pauseToken(mint);
+        logger.warn(`${pos.ticker || mint.substring(0, 6)} - Posição pausada (saldo zero)`);
+        return;
+      }
+
       const currentPrice = await jupiterService.getUsdPrice(mint);
       if (!currentPrice || !pos.entryUsd) {
-        await this.sleep(config.priceCheckSeconds * 1000);
+        // Usar intervalo otimizado baseado no número de API keys válidas
+      const optimalInterval = jupiterService.getOptimalPriceCheckInterval();
+      await this.sleep(optimalInterval * 1000);
         continue;
       }
 
@@ -166,14 +191,16 @@ class TradingService {
             `${stage.name.toUpperCase()} atingido! ${multiple.toFixed(2)}x → Vendendo ${stage.sellPercent}%`
           );
 
-          const success = await this.sellToken(mint, sellAmount);
+          const success = await this.sellToken(mint, sellAmount, ticker, stage.name);
           if (success) {
             stateService.markStageSold(mint, stage.name);
           }
         }
       }
 
-      await this.sleep(config.priceCheckSeconds * 1000);
+      // Usar intervalo otimizado baseado no número de API keys válidas
+      const optimalInterval = jupiterService.getOptimalPriceCheckInterval();
+      await this.sleep(optimalInterval * 1000);
     }
   }
 
