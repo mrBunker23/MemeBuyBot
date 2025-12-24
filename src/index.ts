@@ -45,8 +45,8 @@ async function main(): Promise<void> {
 
   // Iniciar monitor de status visual
   statusMonitor.printStatus(); // Mostra imediatamente
-  // Auto-refresh a cada 30s como backup (a tela atualiza em tempo real nas mudanças)
-  statusMonitor.startAutoRefresh(30000);
+  // Auto-refresh a cada 1 segundo para manter interface sempre atualizada
+  statusMonitor.startAutoRefresh(1000);
 
   // Retomar monitoramento apenas de posições ativas
   const activePositions = stateService.getActivePositions();
