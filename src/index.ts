@@ -1,0 +1,83 @@
+import 'dotenv/config';
+import { config, logConfig } from './config';
+import { scraperService } from './services/scraper.service';
+import { tradingService } from './services/trading.service';
+import { stateService } from './services/state.service';
+import { logger } from './utils/logger';
+import { statusMonitor } from './utils/status-monitor';
+
+async function main(): Promise<void> {
+  logConfig();
+
+  console.log('🔐 Inicializando scraper...');
+  await scraperService.initialize();
+
+  // Iniciar monitor de status visual
+  statusMonitor.startAutoRefresh(5000); // Atualiza a cada 5 segundos
+  statusMonitor.printStatus(); // Mostra imediatamente
+
+  // Retomar monitoramento de posições existentes
+  const positions = stateService.getAllPositions();
+  for (const mint of Object.keys(positions)) {
+    logger.info(`Retomando monitor: ${mint.substring(0, 8)}...`);
+    tradingService
+      .monitorPosition(mint)
+      .catch((e) => logger.error(`Monitor ${mint.substring(0, 8)}`, e));
+  }
+
+  // Loop principal de scraping
+  logger.info(`Loop de scraping iniciado (intervalo: ${config.checkIntervalMs}ms)`);
+
+  setInterval(async () => {
+    try {
+      const tokens = await scraperService.extractTokens();
+
+      for (const token of tokens) {
+        const mint = token.mint;
+
+        // Validar mint
+        if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+          continue;
+        }
+
+        // Ignorar se já foi visto
+        if (stateService.isSeen(mint)) {
+          continue;
+        }
+
+        // Filtrar por score mínimo (mas continua monitorando)
+        const tokenScore = parseInt(token.score) || 0;
+        if (config.minScore > 0 && tokenScore < config.minScore) {
+          // NÃO marca como visto - continua verificando se o score aumenta
+          continue;
+        }
+
+        logger.success(`NOVO: ${token.ticker} (score ${token.score}) ✅`);
+
+        // Só marca como visto quando compra
+        stateService.markAsSeen(mint);
+
+        const bought = await tradingService.buyToken(mint);
+        if (!bought) continue;
+
+        const entryUsd = await tradingService.getEntryPrice(mint);
+        stateService.createPosition(mint, token.ticker, entryUsd, config.amountSol);
+
+        if (entryUsd) {
+          logger.info(`${token.ticker} entrada: $${entryUsd.toFixed(6)}`);
+        }
+
+        tradingService
+          .monitorPosition(mint)
+          .catch((e) => logger.error(`Monitor ${token.ticker}`, e));
+      }
+    } catch (error) {
+      logger.error('Erro no loop principal', error);
+    }
+  }, config.checkIntervalMs);
+}
+
+main().catch((error) => {
+  console.error('❌ FATAL:', error);
+  process.exit(1);
+});
