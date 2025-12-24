@@ -80,7 +80,13 @@ class TradingService {
     }
 
     while (true) {
-      if (pos.sold?.tp4) return;
+      // Verificar se TP4 foi executado ou se saldo é zero
+      const balance = await solanaService.getTokenBalance(mint);
+
+      if (pos.sold?.tp4 && balance.amount === 0n) {
+        logger.info(`${pos.ticker || mint.substring(0, 6)} - Monitoramento finalizado (TP4 completo)`);
+        return;
+      }
 
       const currentPrice = await jupiterService.getUsdPrice(mint);
       if (!currentPrice || !pos.entryUsd) {
@@ -110,13 +116,12 @@ class TradingService {
       if (pos.sold?.tp3) soldTPs.push('tp3');
       if (pos.sold?.tp4) soldTPs.push('tp4');
 
-      // Obter saldo atual
-      const balance = await solanaService.getTokenBalance(mint);
+      // Formatar saldo
       const balanceFormatted = balance.amount > 0n
         ? (Number(balance.amount) / Math.pow(10, balance.decimals)).toFixed(2)
         : '0';
 
-      // Atualizar status monitor
+      // Atualizar status monitor (vai remover automaticamente se TP4 + saldo zero)
       statusMonitor.updatePosition(
         mint,
         ticker,
@@ -139,9 +144,10 @@ class TradingService {
         if (pos.sold[stage.name as keyof typeof pos.sold]) continue;
 
         if (multiple >= stage.multiple) {
-          const balance = await solanaService.getTokenBalance(mint);
+          // Buscar saldo atualizado antes de vender
+          const currentBalance = await solanaService.getTokenBalance(mint);
 
-          if (balance.amount <= 0n) {
+          if (currentBalance.amount <= 0n) {
             logger.warn(`Sem saldo para ${stage.name}`);
             stateService.markStageSold(mint, stage.name);
             continue;
@@ -150,10 +156,10 @@ class TradingService {
           // Calcular quanto vender baseado no percentual
           let sellAmount: bigint;
           if (stage.sellPercent >= 100) {
-            sellAmount = balance.amount;
+            sellAmount = currentBalance.amount;
           } else {
-            sellAmount = (balance.amount * BigInt(stage.sellPercent)) / 100n;
-            if (sellAmount <= 0n) sellAmount = balance.amount;
+            sellAmount = (currentBalance.amount * BigInt(stage.sellPercent)) / 100n;
+            if (sellAmount <= 0n) sellAmount = currentBalance.amount;
           }
 
           logger.success(

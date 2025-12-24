@@ -40,6 +40,18 @@ class StatusMonitor {
 
   updatePosition(mint: string, ticker: string, multiple: number, percentChange: string, soldTPs?: string[], balance?: string): void {
     const existing = this.tokens.get(mint);
+
+    // Verificar se TP4 foi executado e saldo é zero
+    const hasTP4 = soldTPs?.includes('tp4') || false;
+    const balanceNum = parseFloat(balance || '0');
+
+    if (hasTP4 && balanceNum === 0) {
+      // Remover do monitoramento - posição finalizada
+      this.removeToken(mint);
+      logger.info(`${ticker} removido do monitoramento (TP4 completo, saldo zero)`);
+      return;
+    }
+
     this.tokens.set(mint, {
       ticker,
       mint,
@@ -50,6 +62,10 @@ class StatusMonitor {
       soldTPs: soldTPs || existing?.soldTPs || [],
       balance: balance || existing?.balance || null,
     });
+  }
+
+  removeToken(mint: string): void {
+    this.tokens.delete(mint);
   }
 
   printStatus(): void {
@@ -111,8 +127,9 @@ class StatusMonitor {
         // Status com cores e ícones
         let status = '';
         if (token.soldTPs && token.soldTPs.length > 0) {
-          const tps = token.soldTPs.map(tp => tp.toUpperCase()).join(',');
-          status = chalk.yellow(`✅ ${tps}`);
+          // Mostrar apenas o último TP executado
+          const lastTP = token.soldTPs[token.soldTPs.length - 1].toUpperCase();
+          status = chalk.yellow(`✅ ${lastTP}`);
         } else {
           status = chalk.gray('⏳ Aguard.');
         }
