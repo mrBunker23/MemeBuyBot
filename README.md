@@ -211,7 +211,7 @@ bun src/index.ts
 Ou use o script configurado:
 
 ```bash
-bun start
+bun run dev
 ```
 
 ### O que você verá:
