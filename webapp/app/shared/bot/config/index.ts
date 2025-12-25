@@ -32,7 +32,7 @@ export const config: Config = {
   minScore: Number(getEnv('MIN_SCORE', '0')),
 
   headless: getEnv('HEADLESS', 'true').toLowerCase() === 'true',
-  stateFile: './webapp/app/shared/bot/state.json',  // Adaptado para webapp
+  stateFile: './state.json',  // State file na pasta webapp
 };
 
 // Take Profit Stages (configuráveis via .env)
