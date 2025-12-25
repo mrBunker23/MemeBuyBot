@@ -16,9 +16,12 @@ export interface Config {
 }
 
 export interface Stage {
-  name: string;
+  id: string; // UUID único
+  name: string; // Nome customizável (ex: "Quick Profit", "Moon Shot", etc)
   multiple: number;
   sellPercent: number; // 50 = 50%, 100 = 100%
+  enabled: boolean;
+  order: number; // Ordem de execução (1, 2, 3...)
 }
 
 export interface TokenInfo {
@@ -43,12 +46,7 @@ export interface Position {
   highestMultiple: number | null;
   createdAt: string;
   lastUpdated: string;
-  sold: {
-    tp1?: boolean;
-    tp2?: boolean;
-    tp3?: boolean;
-    tp4?: boolean;
-  };
+  sold: Record<string, boolean>; // Mapa de stage.id => boolean
   priceHistory: PriceHistory[];
   paused?: boolean; // Indica se o monitoramento está pausado (saldo = 0)
   pausedAt?: string; // Timestamp quando foi pausado
@@ -96,6 +94,12 @@ export interface BotStatus {
   tokensMonitored: number;
   totalTransactions: number;
   lastCheck?: string;
+}
+
+export interface TakeProfitConfig {
+  stages: Stage[];
+  version: number; // Para controle de versão
+  updatedAt: string;
 }
 
 export interface WebSocketMessage {

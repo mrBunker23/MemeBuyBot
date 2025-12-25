@@ -1,5 +1,5 @@
-import { botManagerService } from '@/app/shared/bot/services/bot-manager.service';
-import { config } from '@/app/shared/bot/config';
+import { botManagerService } from '../../shared/bot/services/bot-manager.service';
+import { config } from '../../shared/bot/config';
 
 export class BotController {
 

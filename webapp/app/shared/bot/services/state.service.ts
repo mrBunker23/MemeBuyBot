@@ -47,7 +47,7 @@ class StateService {
       highestMultiple: 1,
       createdAt: now,
       lastUpdated: now,
-      sold: { tp1: false, tp2: false, tp3: false, tp4: false },
+      sold: {}, // Objeto dinâmico para TPs
       priceHistory: entryUsd ? [{
         timestamp: now,
         price: entryUsd,
@@ -108,10 +108,10 @@ class StateService {
     }
   }
 
-  markStageSold(mint: string, stageName: string): void {
+  markStageSold(mint: string, stageId: string): void {
     const pos = this.state.positions[mint];
     if (pos) {
-      pos.sold[stageName as keyof Position['sold']] = true;
+      pos.sold[stageId] = true;
       pos.lastUpdated = new Date().toISOString();
       this.saveState();
     }
@@ -154,7 +154,7 @@ class StateService {
       pos.highestPrice = newEntryPrice;
       pos.highestMultiple = 1;
       pos.lastUpdated = now;
-      pos.sold = { tp1: false, tp2: false, tp3: false, tp4: false };
+      pos.sold = {}; // Reset TPs para objeto vazio
       pos.priceHistory = [{
         timestamp: now,
         price: newEntryPrice,

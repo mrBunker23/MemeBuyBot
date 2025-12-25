@@ -3,9 +3,10 @@ import { api, getErrorMessage } from '../lib/eden-api'
 import { BotStatus } from './BotStatus'
 import { PositionsTable } from './PositionsTable'
 import { BotControls } from './BotControls'
-import { BotConfig } from './BotConfig'
+import { BotConfigSimple } from './BotConfigSimple'
 import { BotStats } from './BotStats'
 import { BotLogs } from './BotLogs'
+import { TakeProfitManager } from './TakeProfitManager'
 
 interface BotStatusData {
   isRunning: boolean;
@@ -50,7 +51,7 @@ export function BotDashboard() {
   const [positions, setPositions] = useState<PositionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'config' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'config' | 'takeprofit' | 'logs'>('overview');
 
   // Função para buscar dados iniciais
   const fetchData = async () => {
@@ -168,6 +169,12 @@ export function BotDashboard() {
               Configurações
             </button>
             <button
+              onClick={() => setActiveTab('takeprofit')}
+              className={tabClasses('takeprofit')}
+            >
+              🎯 Take Profits
+            </button>
+            <button
               onClick={() => setActiveTab('logs')}
               className={tabClasses('logs')}
             >
@@ -239,7 +246,11 @@ export function BotDashboard() {
         )}
 
         {activeTab === 'config' && (
-          <BotConfig />
+          <BotConfigSimple />
+        )}
+
+        {activeTab === 'takeprofit' && (
+          <TakeProfitManager />
         )}
 
         {activeTab === 'logs' && (

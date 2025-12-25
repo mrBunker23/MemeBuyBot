@@ -5,7 +5,8 @@ import { solanaService } from './solana.service';
 import { jupiterService } from './jupiter.service';
 import { botWebSocketService } from './websocket.service';
 import { logger } from '../utils/logger';
-import { config, logConfig } from '../config';
+import { config } from '../config';
+import { WebConfigManager } from '../config/web-config';
 import type { BotStatus, TokenInfo, Position } from '../types';
 
 class BotManagerService {
@@ -16,6 +17,26 @@ class BotManagerService {
 
   // Event handlers para WebSocket
   private onStatusChangeCallbacks: Array<(status: BotStatus) => void> = [];
+
+  private logConfig(): void {
+    const configManager = WebConfigManager.getInstance();
+    const config = configManager.getConfig();
+    const stages = configManager.getStages();
+
+    console.log('🔥 Configuração carregada');
+    console.log('🎯 Compra por token:', config.amountSol, 'SOL');
+    console.log('⚙️ Slippage:', config.slippageBps, 'bps');
+    console.log('⏱️ Leitura do site:', config.checkIntervalMs, 'ms');
+    console.log('📉 Check de preço:', config.priceCheckSeconds, 's');
+    console.log('🎯 Score mínimo:', config.minScore > 0 ? config.minScore : 'Sem filtro');
+    console.log('🧠 Headless:', config.headless);
+    console.log(`🔑 API Keys Jupiter: ${config.jupApiKeys.length} key${config.jupApiKeys.length > 1 ? 's' : ''} (rotação ativada)`);
+    console.log('\n📊 Estratégia de Take Profit:');
+    stages.forEach(stage => {
+      console.log(`   ${stage.name.toUpperCase()}: ${stage.multiple}x → vende ${stage.sellPercent}%`);
+    });
+    console.log('');
+  }
 
   constructor() {
     // Configurar listeners de eventos dos serviços
@@ -140,7 +161,15 @@ class BotManagerService {
 
     try {
       logger.info('🚀 Iniciando bot...');
-      logConfig();
+      this.logConfig();
+
+      // Verificar se a configuração é válida
+      const configManager = WebConfigManager.getInstance();
+      const config = configManager.getConfig();
+
+      if (!config.privateKey || config.jupApiKeys.length === 0) {
+        throw new Error('Configuração inválida: Private Key e Jupiter API Keys são obrigatórias. Configure na aba Configurações.');
+      }
 
       // Inicializar scraper
       logger.info('🔐 Inicializando scraper...');

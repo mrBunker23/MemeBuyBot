@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia"
 import { usersRoutes } from "./users.routes"
 import { botRoutes } from "./bot.routes"
 import { botWebSocketRoutes } from "./bot-websocket.routes"
+// import { takeProfitRoutes } from "./takeprofit.routes" // Temporariamente removido
 
 export const apiRoutes = new Elysia({ prefix: "/api" })
   .get("/", () => ({ message: "🔥 Hot Reload funcionando! FluxStack API v1.4.0 ⚡" }), {
@@ -40,3 +41,5 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .use(botRoutes)
   // Register bot WebSocket routes
   .use(botWebSocketRoutes)
+  // Register take profit routes
+  // .use(takeProfitRoutes) // Temporariamente removido

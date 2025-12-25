@@ -1,4 +1,5 @@
-import { config, STAGES } from '../config';
+import { config } from '../config';
+import { WebConfigManager } from '../config/web-config';
 import { jupiterService } from './jupiter.service';
 import { solanaService } from './solana.service';
 import { stateService } from './state.service';
@@ -172,15 +173,20 @@ class TradingService {
     // Verificar se TP4 foi executado ou se saldo é zero
     const balance = await solanaService.getTokenBalance(mint);
 
-    // Se TP4 foi executado e saldo é zero, finalizar monitoramento
-    if (pos.sold?.tp4 && balance.amount === 0n) {
+    // Verificar se todos os TPs foram executados
+    const webConfigManager = WebConfigManager.getInstance();
+    const enabledStages = webConfigManager.getStages().filter(s => s.enabled);
+    const allTPsCompleted = enabledStages.every(stage => pos.sold?.[stage.id]);
+
+    // Se todos os TPs foram executados e saldo é zero, finalizar monitoramento
+    if (allTPsCompleted && balance.amount === 0n) {
       this.stopMonitoring(mint);
-      logger.info(`${pos.ticker || mint.substring(0, 6)} - Monitoramento finalizado (TP4 completo)`);
+      logger.info(`${pos.ticker || mint.substring(0, 6)} - Monitoramento finalizado (todos TPs completos)`);
       return;
     }
 
-    // Se saldo é zero mas TP4 não foi executado, pausar posição
-    if (balance.amount === 0n && !pos.sold?.tp4) {
+    // Se saldo é zero mas nem todos os TPs foram executados, pausar posição
+    if (balance.amount === 0n && !allTPsCompleted) {
       this.stopMonitoring(mint);
       stateService.pausePosition(mint);
       logger.warn(`${pos.ticker || mint.substring(0, 6)} - Posição pausada (saldo zero)`);
@@ -213,8 +219,9 @@ class TradingService {
         : '0'
     });
 
-    // Encontrar próximo TP
-    const nextTp = STAGES.find(s => !updatedPos.sold?.[s.name as keyof typeof updatedPos.sold]);
+    // Encontrar próximo TP usando WebConfigManager
+    const stages = webConfigManager.getStages().filter(s => s.enabled);
+    const nextTp = stages.find(s => !updatedPos.sold?.[s.id]);
     const nextTpText = nextTp
       ? `→ ${nextTp.name.toUpperCase()} (${nextTp.multiple}x)`
       : 'Concluído';
@@ -229,9 +236,9 @@ class TradingService {
       updatedPos.highestMultiple || multiple
     );
 
-    // Verificar TPs
-    for (const stage of STAGES) {
-      if (updatedPos.sold?.[stage.name as keyof typeof updatedPos.sold]) continue;
+    // Verificar TPs dinâmicos
+    for (const stage of stages) {
+      if (updatedPos.sold?.[stage.id]) continue;
 
       if (multiple >= stage.multiple) {
         // Buscar saldo atualizado antes de vender
@@ -239,7 +246,7 @@ class TradingService {
 
         if (currentBalance.amount <= 0n) {
           logger.warn(`Sem saldo para ${stage.name}`);
-          stateService.markStageSold(mint, stage.name);
+          stateService.markStageSold(mint, stage.id);
           continue;
         }
 
@@ -256,9 +263,9 @@ class TradingService {
           `${stage.name.toUpperCase()} atingido! ${multiple.toFixed(2)}x → Vendendo ${stage.sellPercent}%`
         );
 
-        const success = await this.sellToken(mint, sellAmount, ticker, stage.name);
+        const success = await this.sellToken(mint, sellAmount, ticker, stage.id);
         if (success) {
-          stateService.markStageSold(mint, stage.name);
+          stateService.markStageSold(mint, stage.id);
         }
       }
     }
