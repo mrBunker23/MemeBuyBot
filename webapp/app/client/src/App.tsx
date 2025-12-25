@@ -1,194 +1,8 @@
-import { useState, useEffect } from 'react'
-import { api } from './lib/eden-api'
-import { FaFire, FaBook, FaGithub, FaClock, FaImage, FaRobot } from 'react-icons/fa'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { LiveComponentsProvider } from '@/core/client'
-import { FileUploadExample } from './live/FileUploadExample'
-import { MinimalLiveClock } from './live/MinimalLiveClock'
-import { BotDashboard } from './components/BotDashboard'
+import { Layout } from './components/Layout'
+import { HomePage, BotPage } from './pages'
 
-function AppContent() {
-  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking')
-  const [showDemo, setShowDemo] = useState(false)
-  const [showBotDashboard, setShowBotDashboard] = useState(false)
-
-  useEffect(() => {
-    checkApiStatus()
-  }, [])
-
-  const checkApiStatus = async () => {
-    try {
-      const { error } = await api.health.get()
-      setApiStatus(error ? 'offline' : 'online')
-    } catch {
-      setApiStatus('offline')
-    }
-  }
-
-  // If bot dashboard is active, show bot dashboard
-  if (showBotDashboard) {
-    return <BotDashboard />
-  }
-
-  // If demo mode is active, show demo content
-  if (showDemo) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-        <div className="container mx-auto px-4 py-8">
-          {/* Header with back button */}
-          <div className="flex items-center gap-4 mb-8">
-            <button
-              onClick={() => setShowDemo(false)}
-              className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white rounded-lg font-medium hover:bg-white/20 transition-all"
-            >
-              ← Back
-            </button>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-              FluxStack Demos
-            </h1>
-          </div>
-
-          {/* Demo Content */}
-          <FileUploadExample />
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
-        {/* Logo */}
-        <div className="mb-8 animate-pulse-slow">
-          <FaFire className="text-8xl text-orange-500 drop-shadow-2xl" />
-        </div>
-
-        {/* Title */}
-        <h1 className="text-6xl md:text-7xl font-bold mb-4 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-          FluxStack
-        </h1>
-
-        {/* Subtitle */}
-        <p className="text-xl md:text-2xl text-gray-300 mb-8 max-w-2xl">
-          Full-stack TypeScript framework with{' '}
-          <span className="text-purple-400 font-semibold">Bun</span>,{' '}
-          <span className="text-blue-400 font-semibold">Elysia</span>, and{' '}
-          <span className="text-cyan-400 font-semibold">React</span>
-        </p>
-
-        {/* API Status Badge */}
-        <div className="mb-12">
-          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-            apiStatus === 'online'
-              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-              : apiStatus === 'offline'
-              ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-              : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-          }`}>
-            <div className={`w-2 h-2 rounded-full ${
-              apiStatus === 'online' ? 'bg-emerald-400' : apiStatus === 'offline' ? 'bg-red-400' : 'bg-yellow-400'
-            }`}></div>
-            <span>{apiStatus === 'checking' ? 'Checking API...' : apiStatus === 'online' ? 'API Online' : 'API Offline'}</span>
-          </div>
-        </div>
-
-        {/* Feature Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 max-w-6xl">
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all">
-            <div className="text-3xl mb-3">⚡</div>
-            <h3 className="text-lg font-semibold text-white mb-2">Ultra Rápido</h3>
-            <p className="text-gray-400 text-sm">Bun runtime 3x mais rápido que Node.js</p>
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all">
-            <div className="text-3xl mb-3">🔒</div>
-            <h3 className="text-lg font-semibold text-white mb-2">Type Safe</h3>
-            <p className="text-gray-400 text-sm">Eden Treaty com inferência automática</p>
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all">
-            <div className="text-3xl mb-3">🎨</div>
-            <h3 className="text-lg font-semibold text-white mb-2">Moderno</h3>
-            <p className="text-gray-400 text-sm">React 19 + Vite + Tailwind CSS</p>
-          </div>
-
-          {/* Live Clock Card */}
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all">
-            <div className="flex items-center gap-3 mb-3">
-              <FaClock className="text-2xl text-emerald-400" />
-              <div>
-                <h3 className="text-lg font-semibold text-white">Live Clock</h3>
-                <p className="text-gray-400 text-sm">Provido via LiveComponent</p>
-              </div>
-            </div>
-            <MinimalLiveClock />
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-4 justify-center">
-          <button
-            onClick={() => setShowBotDashboard(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-orange-500/50 transition-all"
-          >
-            <FaRobot />
-            Bot Dashboard
-          </button>
-          <button
-            onClick={() => setShowDemo(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-500/50 transition-all"
-          >
-            <FaImage />
-            View Demos
-          </button>
-          <a
-            href="/swagger"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg hover:shadow-purple-500/50 transition-all"
-          >
-            <FaBook />
-            API Docs
-          </a>
-          <a
-            href="https://github.com/MarcosBrendonDePaula/FluxStack"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white rounded-xl font-medium hover:bg-white/20 transition-all"
-          >
-            <FaGithub />
-            GitHub
-          </a>
-          <a
-            href="/api"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-white rounded-xl font-medium hover:bg-white/20 transition-all"
-          >
-            🚀 API Root
-          </a>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-16 text-gray-500 text-sm">
-          <p>Desenvolvido com ❤️ usando TypeScript</p>
-        </div>
-      </div>
-
-      {/* Animations */}
-      <style>{`
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.8; }
-        }
-        .animate-pulse-slow {
-          animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-      `}</style>
-    </div>
-  )
-}
-
-// Main App with LiveComponentsProvider
 function App() {
   return (
     <LiveComponentsProvider
@@ -198,7 +12,14 @@ function App() {
       heartbeatInterval={30000}
       debug={false}
     >
-      <AppContent />
+      <Router>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<HomePage />} />
+            <Route path="/bot" element={<BotPage />} />
+          </Route>
+        </Routes>
+      </Router>
     </LiveComponentsProvider>
   )
 }
