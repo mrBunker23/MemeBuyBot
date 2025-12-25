@@ -1,0 +1,460 @@
+// 🔥 FluxStack Live Components - Shared Types
+
+export interface LiveMessage {
+  type: 'COMPONENT_MOUNT' | 'COMPONENT_UNMOUNT' |
+  'COMPONENT_REHYDRATE' | 'COMPONENT_ACTION' | 'CALL_ACTION' |
+  'ACTION_RESPONSE' | 'PROPERTY_UPDATE' | 'STATE_UPDATE' | 'STATE_REHYDRATED' |
+  'ERROR' | 'BROADCAST' | 'FILE_UPLOAD_START' | 'FILE_UPLOAD_CHUNK' | 'FILE_UPLOAD_COMPLETE' |
+  'COMPONENT_PING' | 'COMPONENT_PONG'
+  componentId: string
+  action?: string
+  property?: string
+  payload?: any
+  timestamp?: number
+  userId?: string
+  room?: string
+  // Request-Response system
+  requestId?: string
+  responseId?: string
+  expectResponse?: boolean
+}
+
+export interface ComponentState {
+  [key: string]: any
+}
+
+export interface LiveComponentInstance<TState = ComponentState, TActions = Record<string, Function>> {
+  id: string
+  state: TState
+  call: <T extends keyof TActions>(action: T, ...args: any[]) => Promise<any>
+  set: <K extends keyof TState>(property: K, value: TState[K]) => void
+  loading: boolean
+  errors: Record<string, string>
+  connected: boolean
+  room?: string
+}
+
+export interface WebSocketData {
+  components: Map<string, any>
+  userId?: string
+  subscriptions: Set<string>
+}
+
+export interface ComponentDefinition<TState = ComponentState> {
+  name: string
+  initialState: TState
+  component: new (initialState: TState, ws: any) => LiveComponent<TState>
+}
+
+export interface BroadcastMessage {
+  type: string
+  payload: any
+  room?: string
+  excludeUser?: string
+}
+
+// WebSocket Types for Client
+export interface WebSocketMessage {
+  type: string
+  componentId?: string
+  action?: string
+  payload?: any
+  timestamp?: number
+  userId?: string
+  room?: string
+  // Request-Response system
+  requestId?: string
+  responseId?: string
+  expectResponse?: boolean
+}
+
+export interface WebSocketResponse {
+  type: 'MESSAGE_RESPONSE' | 'CONNECTION_ESTABLISHED' | 'ERROR' | 'BROADCAST' | 'ACTION_RESPONSE' | 'COMPONENT_MOUNTED' | 'COMPONENT_REHYDRATED' | 'STATE_UPDATE' | 'STATE_REHYDRATED' | 'FILE_UPLOAD_PROGRESS' | 'FILE_UPLOAD_COMPLETE' | 'FILE_UPLOAD_ERROR' | 'FILE_UPLOAD_START_RESPONSE' | 'COMPONENT_PONG'
+  originalType?: string
+  componentId?: string
+  success?: boolean
+  result?: any
+  // Request-Response system
+  requestId?: string
+  responseId?: string
+  error?: string
+  timestamp?: number
+  connectionId?: string
+  payload?: any
+  // File upload specific fields
+  uploadId?: string
+  chunkIndex?: number
+  totalChunks?: number
+  bytesUploaded?: number
+  totalBytes?: number
+  progress?: number
+  filename?: string
+  fileUrl?: string
+  // Re-hydration specific fields
+  signedState?: any
+  oldComponentId?: string
+  newComponentId?: string
+}
+
+// Hybrid Live Component Types
+export interface HybridState<T> {
+  data: T
+  validation: StateValidation
+  conflicts: StateConflict[]
+  status: 'synced' | 'conflict' | 'disconnected'
+}
+
+export interface StateValidation {
+  checksum: string
+  version: number
+  source: 'client' | 'server' | 'mount'
+  timestamp: number
+}
+
+export interface StateConflict {
+  property: string
+  clientValue: any
+  serverValue: any
+  timestamp: number
+  resolved: boolean
+}
+
+export interface HybridComponentOptions {
+  fallbackToLocal?: boolean
+  room?: string
+  userId?: string
+  autoMount?: boolean
+  debug?: boolean
+
+  // Component lifecycle callbacks
+  onConnect?: () => void      // Called when WebSocket connects (can happen multiple times on reconnect)
+  onMount?: () => void        // Called after fresh mount (no prior state)
+  onRehydrate?: () => void    // Called after successful rehydration (restoring prior state)
+  onDisconnect?: () => void   // Called when WebSocket disconnects
+  onError?: (error: string) => void
+  onStateChange?: (newState: any, oldState: any) => void
+}
+
+export abstract class LiveComponent<TState = ComponentState> {
+  public readonly id: string
+  public state: TState
+  protected ws: any
+  public room?: string
+  public userId?: string
+  public broadcastToRoom: (message: BroadcastMessage) => void = () => {} // Will be injected by registry
+
+  constructor(initialState: TState, ws: any, options?: { room?: string; userId?: string }) {
+    this.id = this.generateId()
+    this.state = initialState
+    this.ws = ws
+    this.room = options?.room
+    this.userId = options?.userId
+  }
+
+  // State management
+  public setState(updates: Partial<TState> | ((prev: TState) => Partial<TState>)) {
+    const newUpdates = typeof updates === 'function' ? updates(this.state) : updates
+    this.state = { ...this.state, ...newUpdates }
+    this.emit('STATE_UPDATE', { state: this.state })
+  }
+
+  // Generic setValue action - set any state key with type safety
+  public async setValue<K extends keyof TState>(payload: { key: K; value: TState[K] }): Promise<{ success: true; key: K; value: TState[K] }> {
+    const { key, value } = payload
+    const update = { [key]: value } as unknown as Partial<TState>
+    this.setState(update)
+    return { success: true, key, value }
+  }
+
+  // Execute action safely
+  public async executeAction(action: string, payload: any): Promise<any> {
+    try {
+      // Check if method exists
+      const method = (this as any)[action]
+      if (typeof method !== 'function') {
+        throw new Error(`Action '${action}' not found on component`)
+      }
+
+      // Execute method
+      const result = await method.call(this, payload)
+      return result
+    } catch (error: any) {
+      this.emit('ERROR', { 
+        action, 
+        error: error.message,
+        stack: error.stack 
+      })
+      throw error
+    }
+  }
+
+  // Send message to client
+  protected emit(type: string, payload: any) {
+    const message: LiveMessage = {
+      type: type as any,
+      componentId: this.id,
+      payload,
+      timestamp: Date.now(),
+      userId: this.userId,
+      room: this.room
+    }
+
+    if (this.ws && this.ws.send) {
+      this.ws.send(JSON.stringify(message))
+    }
+  }
+
+  // Broadcast to all clients in room
+  protected broadcast(type: string, payload: any, excludeCurrentUser = false) {
+    const message: BroadcastMessage = {
+      type,
+      payload,
+      room: this.room,
+      excludeUser: excludeCurrentUser ? this.userId : undefined
+    }
+
+    // This will be handled by the registry
+    this.broadcastToRoom(message)
+  }
+
+  // Subscribe to room for multi-user features
+  protected async subscribeToRoom(roomId: string) {
+    this.room = roomId
+    // Registry will handle the actual subscription
+  }
+
+  // Unsubscribe from room
+  protected async unsubscribeFromRoom() {
+    this.room = undefined
+    // Registry will handle the actual unsubscription
+  }
+
+  // Generate unique ID
+  private generateId(): string {
+    return `live-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  }
+
+  // Cleanup when component is destroyed
+  public destroy() {
+    this.unsubscribeFromRoom()
+    // Override in subclasses for custom cleanup
+  }
+
+  // Get serializable state for client
+  public getSerializableState(): TState {
+    return this.state
+  }
+}
+
+// Utility types for better TypeScript experience
+export type ComponentActions<T> = {
+  [K in keyof T]: T[K] extends (...args: any[]) => any ? T[K] : never
+}
+
+export type ComponentProps<T extends LiveComponent> = T extends LiveComponent<infer TState> ? TState : never
+
+export type ActionParameters<T, K extends keyof T> = T[K] extends (...args: infer P) => any ? P : never
+
+export type ActionReturnType<T, K extends keyof T> = T[K] extends (...args: any[]) => infer R ? R : never
+
+// 🔥 Type Inference System for Live Components
+// Similar to Eden Treaty - automatic type inference for actions
+
+/**
+ * Extract all public action methods from a LiveComponent class
+ * Excludes constructor, destroy, lifecycle methods, and inherited methods
+ */
+export type ExtractActions<T extends LiveComponent<any>> = {
+  [K in keyof T as K extends string
+    ? T[K] extends (payload?: any) => Promise<any>
+      ? K extends 'executeAction' | 'destroy' | 'getSerializableState' | 'setState'
+        ? never
+        : K
+      : never
+    : never]: T[K]
+}
+
+/**
+ * Get all action names from a component
+ */
+export type ActionNames<T extends LiveComponent<any>> = keyof ExtractActions<T>
+
+/**
+ * Get the payload type for a specific action
+ * Extracts the first parameter type from the action method
+ */
+export type ActionPayload<
+  T extends LiveComponent<any>,
+  K extends ActionNames<T>
+> = ExtractActions<T>[K] extends (payload: infer P) => any
+  ? P
+  : ExtractActions<T>[K] extends () => any
+    ? undefined
+    : never
+
+/**
+ * Get the return type for a specific action (unwrapped from Promise)
+ */
+export type ActionReturn<
+  T extends LiveComponent<any>,
+  K extends ActionNames<T>
+> = ExtractActions<T>[K] extends (...args: any[]) => Promise<infer R>
+  ? R
+  : ExtractActions<T>[K] extends (...args: any[]) => infer R
+    ? R
+    : never
+
+/**
+ * Get the state type from a LiveComponent class
+ */
+export type InferComponentState<T extends LiveComponent<any>> = T extends LiveComponent<infer S> ? S : never
+
+/**
+ * Type-safe call signature for a component
+ * Provides autocomplete for action names and validates payload types
+ */
+export type TypedCall<T extends LiveComponent<any>> = <K extends ActionNames<T>>(
+  action: K,
+  ...args: ActionPayload<T, K> extends undefined
+    ? []
+    : [payload: ActionPayload<T, K>]
+) => Promise<void>
+
+/**
+ * Type-safe callAndWait signature for a component
+ * Provides autocomplete and returns the correct type
+ */
+export type TypedCallAndWait<T extends LiveComponent<any>> = <K extends ActionNames<T>>(
+  action: K,
+  ...args: ActionPayload<T, K> extends undefined
+    ? [payload?: undefined, timeout?: number]
+    : [payload: ActionPayload<T, K>, timeout?: number]
+) => Promise<ActionReturn<T, K>>
+
+/**
+ * Type-safe setValue signature for a component
+ * Convenience helper for setting individual state values
+ */
+export type TypedSetValue<T extends LiveComponent<any>> = <K extends keyof InferComponentState<T>>(
+  key: K,
+  value: InferComponentState<T>[K]
+) => Promise<void>
+
+/**
+ * Return type for useTypedLiveComponent hook
+ * Provides full type inference for state and actions
+ */
+export interface UseTypedLiveComponentReturn<T extends LiveComponent<any>> {
+  // Server-driven state (read-only from frontend perspective)
+  state: InferComponentState<T>
+
+  // Status information
+  loading: boolean
+  error: string | null
+  connected: boolean
+  componentId: string | null
+
+  // Connection status with all possible states
+  status: 'synced' | 'disconnected' | 'connecting' | 'reconnecting' | 'loading' | 'mounting' | 'error'
+
+  // Type-safe actions
+  call: TypedCall<T>
+  callAndWait: TypedCallAndWait<T>
+
+  // Convenience helper for setting individual state values
+  setValue: TypedSetValue<T>
+
+  // Lifecycle
+  mount: () => Promise<void>
+  unmount: () => Promise<void>
+
+  // Helper for temporary input state
+  useControlledField: <K extends keyof InferComponentState<T>>(field: K, action?: string) => {
+    value: InferComponentState<T>[K]
+    setValue: (value: InferComponentState<T>[K]) => void
+    commit: (value?: InferComponentState<T>[K]) => Promise<void>
+    isDirty: boolean
+  }
+}
+
+// File Upload Types for Chunked WebSocket Upload
+export interface FileChunkData {
+  uploadId: string
+  filename: string
+  fileType: string
+  fileSize: number
+  chunkIndex: number
+  totalChunks: number
+  chunkSize: number
+  data: string // Base64 encoded chunk data
+  hash?: string // Optional chunk hash for verification
+}
+
+export interface FileUploadStartMessage {
+  type: 'FILE_UPLOAD_START'
+  componentId: string
+  uploadId: string
+  filename: string
+  fileType: string
+  fileSize: number
+  chunkSize?: number // Optional, defaults to 64KB
+  requestId?: string
+}
+
+export interface FileUploadChunkMessage {
+  type: 'FILE_UPLOAD_CHUNK'
+  componentId: string
+  uploadId: string
+  chunkIndex: number
+  totalChunks: number
+  data: string // Base64 encoded chunk
+  hash?: string
+  requestId?: string
+}
+
+export interface FileUploadCompleteMessage {
+  type: 'FILE_UPLOAD_COMPLETE'
+  componentId: string
+  uploadId: string
+  requestId?: string
+}
+
+export interface FileUploadProgressResponse {
+  type: 'FILE_UPLOAD_PROGRESS'
+  componentId: string
+  uploadId: string
+  chunkIndex: number
+  totalChunks: number
+  bytesUploaded: number
+  totalBytes: number
+  progress: number // 0-100
+  requestId?: string
+  timestamp: number
+}
+
+export interface FileUploadCompleteResponse {
+  type: 'FILE_UPLOAD_COMPLETE'
+  componentId: string
+  uploadId: string
+  success: boolean
+  filename?: string
+  fileUrl?: string
+  error?: string
+  requestId?: string
+  timestamp: number
+}
+
+// File Upload Manager for handling uploads
+export interface ActiveUpload {
+  uploadId: string
+  componentId: string
+  filename: string
+  fileType: string
+  fileSize: number
+  totalChunks: number
+  receivedChunks: Map<number, string>
+  bytesReceived: number // Track actual bytes received for adaptive chunking
+  startTime: number
+  lastChunkTime: number
+  tempFilePath?: string
+}

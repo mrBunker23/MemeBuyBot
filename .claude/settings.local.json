@@ -3,18 +3,24 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(bun install)",
-      "Bash(ls:*)",
-      "Bash(if [ -f .env ])",
-      "Bash(then echo \"exists\")",
-      "Bash(else echo \"not found\")",
-      "Bash(fi)",
-      "Bash(curl:*)",
       "Bash(bun add:*)",
-      "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nRefatorar bot de trading Solana com TypeScript e arquitetura modular\n\n- Migrar código JavaScript legado para TypeScript\n- Implementar arquitetura modular com separação de responsabilidades\n- Criar serviços especializados \\(Solana, Jupiter, Trading, State, Scraper\\)\n- Substituir Puppeteer por requisições HTTP diretas com cheerio\n- Adicionar configuração de Take Profit via variáveis de ambiente\n- Implementar retry automático para requisições Jupiter API\n- Adicionar suporte para chaves privadas em múltiplos formatos \\(base58 e array\\)\n- Configurar estratégia de TP dinâmica \\(TP1-TP4 configuráveis\\)\n- Melhorar logs e debugging com informações detalhadas\n- Otimizar performance usando fetch ao invés de navegador headless\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(bun run:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
       "Bash(ping:*)",
       "Bash(nslookup:*)",
-      "Bash(cat:*)"
+      "Bash(git status)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git show:*)",
+      "Bash(tree:*)",
+      "Bash(bun --version:*)",
+      "Bash(timeout 10s bun run:*)",
+      "Bash(start http://localhost:3000)"
     ]
   }
 }
