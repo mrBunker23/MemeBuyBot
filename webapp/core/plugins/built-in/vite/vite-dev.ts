@@ -36,7 +36,7 @@ export async function setupViteDev(context: PluginContext): Promise<void> {
         host: viteHost,
         strictPort: true
       },
-      logLevel: 'silent'
+      // logLevel: 'silent'
     })
 
     await viteServer.listen()

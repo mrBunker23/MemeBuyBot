@@ -1,0 +1,103 @@
+{
+  "workflows": [
+    {
+      "name": "Take Profit Básico",
+      "description": "Estratégia simples de take profit",
+      "active": false,
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "trigger-price-change",
+          "name": "Mudança de Preço",
+          "position": {
+            "x": 100,
+            "y": 200
+          },
+          "data": {
+            "changePercentage": 5,
+            "direction": "up",
+            "timeframe": 60
+          }
+        },
+        {
+          "id": "condition-1",
+          "type": "condition-multiple-above",
+          "name": "Múltiplo > 2x",
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "data": {
+            "minMultiple": 2,
+            "basePrice": "entry"
+          }
+        },
+        {
+          "id": "action-1",
+          "type": "action-sell-percentage",
+          "name": "Vender 25%",
+          "position": {
+            "x": 700,
+            "y": 150
+          },
+          "data": {
+            "percentage": 25,
+            "priceType": "market",
+            "slippage": 1
+          }
+        },
+        {
+          "id": "log-1",
+          "type": "util-log",
+          "name": "Log Sucesso",
+          "position": {
+            "x": 1000,
+            "y": 150
+          },
+          "data": {
+            "message": "Take profit executado com sucesso - 25% vendido",
+            "level": "success",
+            "includePositionData": true
+          }
+        }
+      ],
+      "connections": [
+        {
+          "sourceNodeId": "trigger-1",
+          "targetNodeId": "condition-1",
+          "sourceHandle": "output",
+          "targetHandle": "input"
+        },
+        {
+          "sourceNodeId": "trigger-1",
+          "targetNodeId": "condition-1",
+          "sourceHandle": "output",
+          "targetHandle": "input"
+        },
+        {
+          "sourceNodeId": "condition-1",
+          "targetNodeId": "action-1",
+          "sourceHandle": "output",
+          "targetHandle": "input"
+        },
+        {
+          "sourceNodeId": "action-1",
+          "targetNodeId": "log-1",
+          "sourceHandle": "output",
+          "targetHandle": "input"
+        },
+        {
+          "sourceNodeId": "condition-1",
+          "targetNodeId": "trigger-1",
+          "sourceHandle": "output",
+          "targetHandle": "input"
+        }
+      ],
+      "executionCount": 0,
+      "id": "workflow_1766709840926_9vntnq7pc",
+      "createdAt": "2025-12-26T00:44:00.926Z",
+      "updatedAt": "2025-12-26T04:01:07.509Z"
+    }
+  ],
+  "lastUpdated": "2025-12-26T04:01:07.510Z"
+}

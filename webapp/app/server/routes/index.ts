@@ -3,6 +3,7 @@ import { usersRoutes } from "./users.routes"
 import { botRoutes } from "./bot.routes"
 import { botWebSocketRoutes } from "./bot-websocket.routes"
 import { workflowRoutes } from "./workflow.routes"
+import { eventsTestRoutes } from "./events-test.routes"
 // import { configRoutes } from "./config.routes" // Temporariamente removido - usando rotas do bot
 // import { takeProfitRoutes } from "./takeprofit.routes" // Temporariamente removido
 
@@ -45,6 +46,8 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .use(botWebSocketRoutes)
   // Register workflow routes
   .use(workflowRoutes)
+  // Register events test routes
+  .use(eventsTestRoutes)
   // Register config routes
   // .use(configRoutes) // Temporariamente removido - usando rotas do bot
   // Register take profit routes

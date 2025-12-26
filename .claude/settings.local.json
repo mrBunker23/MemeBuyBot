@@ -20,7 +20,10 @@
       "Bash(tree:*)",
       "Bash(bun --version:*)",
       "Bash(timeout 10s bun run:*)",
-      "Bash(start http://localhost:3000)"
+      "Bash(start http://localhost:3000)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }

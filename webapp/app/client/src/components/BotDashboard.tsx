@@ -9,6 +9,7 @@ import { BotLogs } from './BotLogs'
 import { TakeProfitManagerComplete } from './TakeProfitManagerComplete'
 import { BotWallet } from './BotWallet'
 import { WorkflowManager } from './WorkflowManager'
+import { EventsTester } from './EventsTester'
 
 interface BotStatusData {
   isRunning: boolean;
@@ -53,7 +54,7 @@ export function BotDashboard() {
   const [positions, setPositions] = useState<PositionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'wallet' | 'config' | 'takeprofit' | 'workflows' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'wallet' | 'config' | 'takeprofit' | 'workflows' | 'events' | 'logs'>('overview');
 
   // Função para buscar dados iniciais
   const fetchData = async () => {
@@ -100,6 +101,7 @@ export function BotDashboard() {
     { id: 'positions', icon: '💼', label: 'Posições', color: 'from-green-500 to-emerald-500' },
     { id: 'wallet', icon: '💰', label: 'Carteira', color: 'from-yellow-500 to-amber-500' },
     { id: 'workflows', icon: '🔗', label: 'Workflows', color: 'from-pink-500 to-rose-500' },
+    { id: 'events', icon: '⚡', label: 'Event Tester', color: 'from-orange-500 to-red-500' },
     { id: 'config', icon: '⚙️', label: 'Configurações', color: 'from-gray-500 to-slate-500' },
     { id: 'takeprofit', icon: '🎯', label: 'Take Profits', color: 'from-purple-500 to-violet-500' },
     { id: 'logs', icon: '📋', label: 'Logs', color: 'from-indigo-500 to-blue-500' },
@@ -353,6 +355,10 @@ export function BotDashboard() {
 
         {activeTab === 'workflows' && (
           <WorkflowManager />
+        )}
+
+        {activeTab === 'events' && (
+          <EventsTester />
         )}
 
         {activeTab === 'logs' && (

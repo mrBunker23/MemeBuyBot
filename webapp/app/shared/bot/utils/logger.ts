@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-type LogLevel = 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR';
+type LogLevel = 'DEBUG' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR';
 
 interface LogMessage {
   level: LogLevel;
@@ -112,6 +112,7 @@ class Logger {
   private formatMessage(level: LogLevel, message: string): string {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     const icons = {
+      DEBUG: '🐛',
       INFO: 'ℹ️',
       SUCCESS: '✅',
       WARN: '⚠️',
@@ -147,6 +148,13 @@ class Logger {
         // Ignorar erro ao emitir
       }
     });
+  }
+
+  debug(message: string): void {
+    const formatted = this.formatMessage('DEBUG', message);
+    console.log(formatted);
+    this.writeToFile(this.formatMessageFile('DEBUG', message));
+    this.emitLog('DEBUG', message);
   }
 
   info(message: string): void {

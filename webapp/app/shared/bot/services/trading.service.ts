@@ -4,6 +4,7 @@ import { jupiterService } from './jupiter.service';
 import { solanaService } from './solana.service';
 import { stateService } from './state.service';
 import { logger } from '../utils/logger';
+import { botEventEmitter } from '../events/BotEventEmitter';
 
 class TradingService {
   private isRunning: boolean = false;
@@ -51,6 +52,16 @@ class TradingService {
 
   async buyToken(mint: string, ticker?: string): Promise<boolean> {
     const lamports = BigInt(Math.floor(config.amountSol * 1e9));
+    const tokenTicker = ticker || mint.substring(0, 6);
+    const usdValue = config.amountSol * 100; // Estimativa SOL = $100 (placeholder)
+
+    // Emitir evento de compra iniciada
+    botEventEmitter.emit('trading:buy_initiated', {
+      mint,
+      ticker: tokenTicker,
+      amount: lamports.toString(),
+      usdValue
+    });
 
     const result = await jupiterService.executeTrade({
       inputMint: config.solMint,
@@ -58,28 +69,63 @@ class TradingService {
       amountInt: lamports.toString(),
     });
 
-    // Emitir evento de transação
+    // Emitir evento baseado no resultado
+    if (result.ok) {
+      botEventEmitter.emit('trading:buy_confirmed', {
+        mint,
+        ticker: tokenTicker,
+        signature: result.signature || 'unknown',
+        actualPrice: result.executionPrice || 0
+      });
+
+      logger.success(`Compra: ${config.amountSol} SOL`);
+    } else {
+      botEventEmitter.emit('trading:buy_failed', {
+        mint,
+        ticker: tokenTicker,
+        error: result.error || 'Unknown error',
+        reason: 'Jupiter execution failed'
+      });
+
+      logger.error('Compra falhou');
+    }
+
+    // Manter compatibilidade com callback antigo
     const transaction = {
       type: 'BUY',
-      ticker: ticker || mint.substring(0, 6),
+      ticker: tokenTicker,
       amount: `${config.amountSol} SOL`,
       success: result.ok,
       timestamp: new Date().toISOString(),
-      signature: result.signature
+      signature: result.signature,
+      mint,
+      actualPrice: result.executionPrice,
+      error: result.error
     };
     this.emitTransaction(transaction);
 
-    if (!result.ok) {
-      logger.error('Compra falhou');
-      return false;
-    }
-
-    logger.success(`Compra: ${config.amountSol} SOL`);
-    return true;
+    return result.ok;
   }
 
   async sellToken(mint: string, amountBaseUnits: bigint, ticker?: string, stage?: string): Promise<boolean> {
     if (amountBaseUnits <= 0n) return false;
+
+    const tokenTicker = ticker || mint.substring(0, 6);
+    const stageLabel = stage || 'manual';
+
+    // Formatar valor para display
+    const balance = await solanaService.getTokenBalance(mint);
+    const decimals = balance.decimals || 9;
+    const amountFormatted = (Number(amountBaseUnits) / Math.pow(10, decimals));
+    const percentage = stage ? 25 : 100; // Placeholder para porcentagem
+
+    // Emitir evento de venda iniciada
+    botEventEmitter.emit('trading:sell_initiated', {
+      mint,
+      ticker: tokenTicker,
+      stage: stageLabel,
+      percentage
+    });
 
     const result = await jupiterService.executeTrade({
       inputMint: mint,
@@ -87,30 +133,45 @@ class TradingService {
       amountInt: amountBaseUnits.toString(),
     });
 
-    // Formatar valor para display
-    const balance = await solanaService.getTokenBalance(mint);
-    const decimals = balance.decimals || 9;
-    const amountFormatted = (Number(amountBaseUnits) / Math.pow(10, decimals)).toFixed(2);
+    // Emitir evento baseado no resultado
+    if (result.ok) {
+      const profit = result.outputValue || 0; // Placeholder para cálculo de lucro
 
-    // Emitir evento de transação
+      botEventEmitter.emit('trading:sell_confirmed', {
+        mint,
+        ticker: tokenTicker,
+        signature: result.signature || 'unknown',
+        profit
+      });
+
+      logger.success(`Venda executada`);
+    } else {
+      botEventEmitter.emit('trading:sell_failed', {
+        mint,
+        ticker: tokenTicker,
+        error: result.error || 'Unknown error',
+        stage: stageLabel
+      });
+
+      logger.error('Venda falhou');
+    }
+
+    // Manter compatibilidade com callback antigo
     const transaction = {
       type: 'SELL',
-      ticker: ticker || mint.substring(0, 6),
-      amount: `${amountFormatted} tokens`,
+      ticker: tokenTicker,
+      amount: `${amountFormatted.toFixed(2)} tokens`,
       success: result.ok,
       timestamp: new Date().toISOString(),
       signature: result.signature,
-      stage
+      stage,
+      mint,
+      profit: result.outputValue,
+      error: result.error
     };
     this.emitTransaction(transaction);
 
-    if (!result.ok) {
-      logger.error('Venda falhou');
-      return false;
-    }
-
-    logger.success(`Venda executada`);
-    return true;
+    return result.ok;
   }
 
   async getEntryPrice(mint: string, maxRetries = 15): Promise<number | null> {
@@ -128,6 +189,13 @@ class TradingService {
 
     const ticker = pos.ticker || mint.substring(0, 6);
 
+    // Emitir evento de monitoramento iniciado
+    botEventEmitter.emit('monitor:started', {
+      mint,
+      ticker,
+      interval: jupiterService.getOptimalPriceCheckInterval()
+    });
+
     // Aguardar preço de entrada se não existir
     if (!pos.entryUsd) {
       logger.info(`${ticker} aguardando preço de entrada...`);
@@ -135,6 +203,15 @@ class TradingService {
         const price = await jupiterService.getUsdPrice(mint);
         if (price) {
           stateService.updatePositionEntry(mint, price);
+
+          // Emitir evento de posição criada com preço de entrada
+          botEventEmitter.emit('position:created', {
+            mint,
+            ticker,
+            entryPrice: price,
+            amount: pos.currentBalance ? Number(pos.currentBalance) : 0
+          });
+
           logger.success(`${ticker} entrada: $${price.toFixed(6)}`);
           break;
         }
@@ -156,6 +233,13 @@ class TradingService {
       try {
         await this.checkPosition(mint);
       } catch (error) {
+        // Emitir evento de erro no monitoramento
+        botEventEmitter.emit('system:error', {
+          error: (error as Error).message,
+          source: `TradingService.monitorPosition.${ticker}`,
+          details: error
+        });
+
         logger.error(`Erro no monitoramento de ${ticker}:`, error);
       }
     }, jupiterService.getOptimalPriceCheckInterval() * 1000);
@@ -195,11 +279,24 @@ class TradingService {
 
     const currentPrice = await jupiterService.getUsdPrice(mint);
     if (!currentPrice) {
+      // Emitir evento de preço não encontrado
+      botEventEmitter.emit('monitor:price_stale', {
+        mint,
+        lastUpdate: pos.priceHistory?.slice(-1)[0]?.timestamp || 'never',
+        staleSince: Date.now()
+      });
       return;
     }
 
     const multiple = currentPrice / pos.entryUsd;
     const percentChange = ((multiple - 1) * 100).toFixed(2);
+
+    // Emitir evento de verificação de preço
+    botEventEmitter.emit('monitor:price_check', {
+      mint,
+      currentPrice,
+      multiple
+    });
 
     // Atualizar histórico de preços
     stateService.updatePrice(mint, currentPrice);
@@ -208,7 +305,21 @@ class TradingService {
     const updatedPos = stateService.getPosition(mint);
     if (!updatedPos) return;
 
-    // Emitir evento de atualização de posição
+    // Emitir evento de atualização de posição (both typed and legacy)
+    const positionData = {
+      ticker: updatedPos.ticker || mint.substring(0, 6),
+      currentPrice,
+      multiple,
+      percentChange: Number(percentChange),
+      highestMultiple: updatedPos.highestMultiple || multiple
+    };
+
+    botEventEmitter.emit('position:updated', {
+      mint,
+      ...positionData
+    });
+
+    // Manter compatibilidade com callback antigo
     this.emitPositionUpdate(mint, {
       ...updatedPos,
       currentMultiple: multiple,
@@ -259,6 +370,15 @@ class TradingService {
           if (sellAmount <= 0n) sellAmount = currentBalance.amount;
         }
 
+        // Emitir evento de take profit atingido
+        botEventEmitter.emit('takeprofit:triggered', {
+          mint,
+          ticker,
+          stage: stage.name,
+          multiple,
+          percentage: stage.sellPercent
+        });
+
         logger.success(
           `${stage.name.toUpperCase()} atingido! ${multiple.toFixed(2)}x → Vendendo ${stage.sellPercent}%`
         );
@@ -276,6 +396,14 @@ class TradingService {
     if (intervalId) {
       clearInterval(intervalId);
       this.monitoringIntervals.delete(mint);
+
+      // Emitir evento de monitoramento parado
+      const pos = stateService.getPosition(mint);
+      botEventEmitter.emit('monitor:stopped', {
+        mint,
+        ticker: pos?.ticker || mint.substring(0, 6),
+        reason: 'Manual stop or completion'
+      });
     }
   }
 

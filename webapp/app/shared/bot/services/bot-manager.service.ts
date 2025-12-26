@@ -7,6 +7,9 @@ import { botWebSocketService } from './websocket.service';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import { WebConfigManager } from '../config/web-config';
+import { botEventEmitter, createEventListener } from '../events/BotEventEmitter';
+import { workflowEventAdapter } from '../events/WorkflowEventAdapter';
+import { realEventWorkflowExecutor } from '../../workflows/execution/RealEventWorkflowExecutor';
 import type { BotStatus, TokenInfo, Position } from '../types';
 
 class BotManagerService {
@@ -63,19 +66,143 @@ class BotManagerService {
   }
 
   private setupEventListeners(): void {
-    // Log listener para WebSocket
+    // === LOG EVENTS ===
+    // Manter compatibilidade com callback do logger
     logger.onLog((log) => {
-      // Pode ser usado para emitir logs via WebSocket
-      this.emitLogEvent(log);
+      // Emitir evento tipado
+      botEventEmitter.emit('logger:log_created', {
+        level: log.level,
+        message: log.message,
+        timestamp: log.timestamp,
+        source: log.source || 'unknown'
+      });
     });
 
-    // Trading service listeners
+    // Listener para logs tipados
+    createEventListener('logger:log_created', (data) => {
+      this.emitLogEvent(data);
+    });
+
+    // === TRADING EVENTS ===
+    // Manter compatibilidade com callbacks do trading service
     tradingService.onPositionUpdate((mint, position) => {
-      this.emitPositionUpdate(mint, position);
+      // Emitir evento tipado
+      botEventEmitter.emit('position:updated', {
+        mint,
+        ticker: position.ticker || 'UNKNOWN',
+        currentPrice: position.currentPrice,
+        multiple: position.currentMultiple,
+        percentChange: position.percentChange,
+        highestMultiple: position.highestMultiple
+      });
     });
 
     tradingService.onTransaction((transaction) => {
-      this.emitTransaction(transaction);
+      // Emitir evento tipado baseado no tipo de transação
+      if (transaction.type === 'BUY') {
+        if (transaction.success) {
+          botEventEmitter.emit('trading:buy_confirmed', {
+            mint: transaction.mint || 'unknown',
+            ticker: transaction.ticker,
+            signature: transaction.signature || 'unknown',
+            actualPrice: transaction.actualPrice || 0
+          });
+        } else {
+          botEventEmitter.emit('trading:buy_failed', {
+            mint: transaction.mint || 'unknown',
+            ticker: transaction.ticker,
+            error: transaction.error || 'Unknown error',
+            reason: transaction.reason || 'Transaction failed'
+          });
+        }
+      } else if (transaction.type === 'SELL') {
+        if (transaction.success) {
+          botEventEmitter.emit('trading:sell_confirmed', {
+            mint: transaction.mint || 'unknown',
+            ticker: transaction.ticker,
+            signature: transaction.signature || 'unknown',
+            profit: transaction.profit || 0
+          });
+        } else {
+          botEventEmitter.emit('trading:sell_failed', {
+            mint: transaction.mint || 'unknown',
+            ticker: transaction.ticker,
+            error: transaction.error || 'Unknown error',
+            stage: transaction.stage || 'unknown'
+          });
+        }
+      }
+    });
+
+    // === POSITION EVENTS ===
+    // Listener para atualizações de posição tipadas
+    createEventListener('position:updated', (data) => {
+      this.emitPositionUpdate(data.mint, {
+        ticker: data.ticker,
+        currentPrice: data.currentPrice,
+        currentMultiple: data.multiple,
+        percentChange: data.percentChange,
+        highestMultiple: data.highestMultiple
+      });
+    });
+
+    // === BOT LIFECYCLE EVENTS ===
+    createEventListener('bot:started', (data) => {
+      logger.success(`🤖 Bot iniciado em ${data.timestamp}`);
+    });
+
+    createEventListener('bot:stopped', (data) => {
+      logger.info(`⏹️ Bot parado em ${data.timestamp}${data.reason ? ` - ${data.reason}` : ''}`);
+    });
+
+    createEventListener('bot:error', (data) => {
+      logger.error(`❌ Erro no bot [${data.source}]: ${data.error}`);
+    });
+
+    // === TRADING WORKFLOW EVENTS ===
+    createEventListener('trading:buy_initiated', (data) => {
+      logger.info(`💰 Iniciando compra: ${data.ticker} (${data.amount} tokens por $${data.usdValue})`);
+    });
+
+    createEventListener('trading:buy_confirmed', (data) => {
+      logger.success(`✅ Compra confirmada: ${data.ticker} (${data.signature})`);
+    });
+
+    createEventListener('trading:sell_confirmed', (data) => {
+      logger.success(`💵 Venda confirmada: ${data.ticker} - Lucro: $${data.profit.toFixed(2)}`);
+    });
+
+    createEventListener('takeprofit:triggered', (data) => {
+      logger.success(`🎯 Take Profit atingido: ${data.ticker} - ${data.stage} (${data.multiple}x) - Vendendo ${data.percentage}%`);
+    });
+
+    // === SCRAPER EVENTS ===
+    createEventListener('scraper:initialized', (data) => {
+      logger.success(`🔍 Scraper conectado: ${data.url} (cookies: ${data.cookies ? 'OK' : 'NONE'})`);
+    });
+
+    createEventListener('scraper:token_detected', (data) => {
+      logger.info(`🔍 Token detectado: ${data.token.ticker || 'UNKNOWN'} (Score: ${data.score})`);
+
+      // Processar token detectado pelo scraper
+      this.handleDetectedToken(data.token);
+    });
+
+    createEventListener('scraper:token_filtered', (data) => {
+      logger.debug(`🚫 Token filtrado: ${data.token.ticker || 'UNKNOWN'} - ${data.reason}`);
+    });
+
+    createEventListener('scraper:error', (data) => {
+      logger.error(`🌐 Erro no scraper: ${data.error}`);
+    });
+
+    createEventListener('scraper:cookies_expired', (data) => {
+      logger.error(`🍪 Cookies expirados em ${data.timestamp} - Bot deve ser reconfigurado`);
+    });
+
+    // === SYSTEM EVENTS ===
+    createEventListener('system:error', (data) => {
+      logger.error(`⚠️ Erro do sistema [${data.source}]: ${data.error}`);
     });
   }
 
@@ -227,18 +354,41 @@ class BotManagerService {
       // Iniciar verificação de posições pausadas
       this.startPausedPositionsCheck();
 
-      // Iniciar loop principal de scraping
-      this.startScrapingLoop();
+      // Iniciar loop principal de scraping (agora event-driven)
+      scraperService.startScrapingLoop();
+
+      // Ativar sistema de workflows com eventos reais
+      workflowEventAdapter.setWorkflowExecutor(realEventWorkflowExecutor);
 
       this.isRunning = true;
       this.startedAt = new Date().toISOString();
 
+      // Emitir evento de bot iniciado
+      botEventEmitter.emit('bot:started', {
+        timestamp: this.startedAt,
+        config: config
+      });
+
       const status = this.getStatus();
       this.emitStatusChange(status);
 
+      // Log info sobre event system
+      const adapterStats = workflowEventAdapter.getStats();
+      const executorStats = realEventWorkflowExecutor.getStats();
+
       logger.success('🚀 Bot iniciado com sucesso!');
+      logger.info(`📡 Event System: ${adapterStats.subscriptionCount} listeners ativos`);
+      logger.info(`🔄 Workflow Adapter: ${adapterStats.isEnabled ? 'Ativo' : 'Inativo'} (${adapterStats.supportedTriggers.length} triggers suportados)`);
+      logger.info(`⚡ Workflow Executor: Conectado aos eventos reais do bot (${executorStats.totalExecutions} execuções até agora)`);
 
     } catch (error) {
+      // Emitir evento de erro
+      botEventEmitter.emit('bot:error', {
+        error: (error as Error).message,
+        source: 'BotManager.start',
+        details: error
+      });
+
       logger.error('Erro ao iniciar bot:', error);
       throw error;
     }
@@ -253,11 +403,8 @@ class BotManagerService {
     try {
       logger.info('⏹️ Parando bot...');
 
-      // Parar loops
-      if (this.scrapeInterval) {
-        clearInterval(this.scrapeInterval);
-        this.scrapeInterval = null;
-      }
+      // Parar scraping (agora no próprio service)
+      scraperService.stopScrapingLoop();
 
       if (this.pausedCheckInterval) {
         clearInterval(this.pausedCheckInterval);
@@ -268,8 +415,17 @@ class BotManagerService {
       tradingService.stopAllMonitoring();
       tradingService.setRunning(false);
 
+      // Desativar workflow system
+      workflowEventAdapter.disable();
+
       this.isRunning = false;
       this.startedAt = null;
+
+      // Emitir evento de bot parado
+      botEventEmitter.emit('bot:stopped', {
+        timestamp: new Date().toISOString(),
+        reason: 'Manual stop'
+      });
 
       const status = this.getStatus();
       this.emitStatusChange(status);
@@ -277,6 +433,13 @@ class BotManagerService {
       logger.success('⏹️ Bot parado com sucesso!');
 
     } catch (error) {
+      // Emitir evento de erro
+      botEventEmitter.emit('bot:error', {
+        error: (error as Error).message,
+        source: 'BotManager.stop',
+        details: error
+      });
+
       logger.error('Erro ao parar bot:', error);
       throw error;
     }
@@ -289,6 +452,50 @@ class BotManagerService {
 
     // Verificação inicial
     this.checkPausedPositions();
+  }
+
+  /**
+   * Processa token detectado pelo scraper via evento
+   * Este método substitui o processToken() que era chamado diretamente
+   */
+  private async handleDetectedToken(token: TokenInfo): Promise<void> {
+    const mint = token.mint;
+
+    // Validar mint
+    if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+      return;
+    }
+
+    // Ignorar se já foi visto
+    if (stateService.isSeen(mint)) {
+      return;
+    }
+
+    // Filtrar por score mínimo (verificação dupla, já que o scraper também filtra)
+    const tokenScore = parseInt(token.score) || 0;
+    if (config.minScore > 0 && tokenScore < config.minScore) {
+      // NÃO marca como visto - continua verificando se o score aumenta
+      return;
+    }
+
+    logger.success(`NOVO: ${token.ticker} (score ${token.score}) ✅`);
+
+    // Só marca como visto quando compra
+    stateService.markAsSeen(mint);
+
+    const bought = await tradingService.buyToken(mint, token.ticker);
+    if (!bought) return;
+
+    const entryUsd = await tradingService.getEntryPrice(mint);
+    stateService.createPosition(mint, token.ticker, entryUsd, config.amountSol);
+
+    if (entryUsd) {
+      logger.info(`${token.ticker} entrada: $${entryUsd.toFixed(6)}`);
+    }
+
+    tradingService.monitorPosition(mint).catch((e) =>
+      logger.error(`Monitor ${token.ticker}`, e)
+    );
   }
 
   private async checkPausedPositions(): Promise<void> {
@@ -320,75 +527,8 @@ class BotManagerService {
     }
   }
 
-  private startScrapingLoop(): void {
-    logger.info(`Loop de scraping iniciado (intervalo: ${config.checkIntervalMs}ms)`);
-
-    this.scrapeInterval = setInterval(async () => {
-      try {
-        const tokens = await scraperService.extractTokens();
-
-        for (const token of tokens) {
-          await this.processToken(token);
-        }
-      } catch (error) {
-        logger.error('Erro no loop principal', error);
-      }
-    }, config.checkIntervalMs);
-
-    // Primeira verificação imediata
-    this.processScrapedTokens();
-  }
-
-  private async processScrapedTokens(): Promise<void> {
-    try {
-      const tokens = await scraperService.extractTokens();
-      for (const token of tokens) {
-        await this.processToken(token);
-      }
-    } catch (error) {
-      logger.error('Erro ao processar tokens', error);
-    }
-  }
-
-  private async processToken(token: TokenInfo): Promise<void> {
-    const mint = token.mint;
-
-    // Validar mint
-    if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
-      return;
-    }
-
-    // Ignorar se já foi visto
-    if (stateService.isSeen(mint)) {
-      return;
-    }
-
-    // Filtrar por score mínimo
-    const tokenScore = parseInt(token.score) || 0;
-    if (config.minScore > 0 && tokenScore < config.minScore) {
-      // NÃO marca como visto - continua verificando se o score aumenta
-      return;
-    }
-
-    logger.success(`NOVO: ${token.ticker} (score ${token.score}) ✅`);
-
-    // Só marca como visto quando compra
-    stateService.markAsSeen(mint);
-
-    const bought = await tradingService.buyToken(mint, token.ticker);
-    if (!bought) return;
-
-    const entryUsd = await tradingService.getEntryPrice(mint);
-    stateService.createPosition(mint, token.ticker, entryUsd, config.amountSol);
-
-    if (entryUsd) {
-      logger.info(`${token.ticker} entrada: $${entryUsd.toFixed(6)}`);
-    }
-
-    tradingService.monitorPosition(mint).catch((e) =>
-      logger.error(`Monitor ${token.ticker}`, e)
-    );
-  }
+  // OLD SCRAPING METHODS REMOVED - Now using event-driven architecture
+  // The ScraperService is now autonomous and emits events that are handled by event listeners
 
   // Métodos para obter dados
   getAllPositions(): Record<string, Position> {
@@ -405,16 +545,23 @@ class BotManagerService {
 
   // Método para atualizar configurações em tempo real
   updateConfig(newConfig: Partial<typeof config>): void {
+    const changes = { ...newConfig };
     Object.assign(config, newConfig);
+
+    // Emitir evento de configuração atualizada
+    botEventEmitter.emit('bot:config_updated', {
+      changes,
+      timestamp: new Date().toISOString()
+    });
+
     logger.info('Configuração atualizada via web');
 
     // Se o bot estiver rodando, reinicias alguns componentes se necessário
     if (this.isRunning && newConfig.checkIntervalMs) {
-      // Reiniciar loop de scraping com novo intervalo
-      if (this.scrapeInterval) {
-        clearInterval(this.scrapeInterval);
-        this.startScrapingLoop();
-      }
+      // Reiniciar scraper com novo intervalo (event-driven)
+      logger.info('🔄 Reiniciando scraper com novo intervalo...');
+      scraperService.stopScrapingLoop();
+      scraperService.startScrapingLoop();
     }
   }
 }
