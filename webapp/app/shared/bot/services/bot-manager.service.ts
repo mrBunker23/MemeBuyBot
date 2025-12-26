@@ -18,24 +18,43 @@ class BotManagerService {
   // Event handlers para WebSocket
   private onStatusChangeCallbacks: Array<(status: BotStatus) => void> = [];
 
-  private logConfig(): void {
-    const configManager = WebConfigManager.getInstance();
-    const config = configManager.getConfig();
-    const stages = configManager.getStages();
+  private async logConfig(): Promise<void> {
+    try {
+      // Usar o novo WalletConfigService se disponível, senão usar WebConfigManager
+      let config: any;
+      let stages: any[];
 
-    console.log('🔥 Configuração carregada');
-    console.log('🎯 Compra por token:', config.amountSol, 'SOL');
-    console.log('⚙️ Slippage:', config.slippageBps, 'bps');
-    console.log('⏱️ Leitura do site:', config.checkIntervalMs, 'ms');
-    console.log('📉 Check de preço:', config.priceCheckSeconds, 's');
-    console.log('🎯 Score mínimo:', config.minScore > 0 ? config.minScore : 'Sem filtro');
-    console.log('🧠 Headless:', config.headless);
-    console.log(`🔑 API Keys Jupiter: ${config.jupApiKeys.length} key${config.jupApiKeys.length > 1 ? 's' : ''} (rotação ativada)`);
-    console.log('\n📊 Estratégia de Take Profit:');
-    stages.forEach(stage => {
-      console.log(`   ${stage.name.toUpperCase()}: ${stage.multiple}x → vende ${stage.sellPercent}%`);
-    });
-    console.log('');
+      try {
+        const { WalletConfigService } = require('../../../server/services/wallet-config.service');
+        config = await WalletConfigService.loadConfig();
+
+        // Para os stages, ainda usar WebConfigManager ou implementar no WalletConfigService
+        const configManager = WebConfigManager.getInstance();
+        stages = configManager.getStages();
+      } catch {
+        // Fallback para WebConfigManager
+        const configManager = WebConfigManager.getInstance();
+        config = configManager.getConfig();
+        stages = configManager.getStages();
+      }
+
+      console.log('🔥 Configuração carregada');
+      console.log('🎯 Compra por token:', config.amountSol, 'SOL');
+      console.log('⚙️ Slippage:', config.slippageBps, 'bps');
+      console.log('⏱️ Leitura do site:', config.checkIntervalMs, 'ms');
+      console.log('📉 Check de preço:', config.priceCheckSeconds, 's');
+      console.log('🎯 Score mínimo:', config.minScore > 0 ? config.minScore : 'Sem filtro');
+      console.log('🧠 Headless:', config.headless);
+      console.log(`🔑 API Keys Jupiter: ${config.jupApiKeys.length} key${config.jupApiKeys.length > 1 ? 's' : ''} (rotação ativada)`);
+      console.log('\n📊 Estratégia de Take Profit:');
+      stages.forEach(stage => {
+        console.log(`   ${stage.name.toUpperCase()}: ${stage.multiple}x → vende ${stage.sellPercent}%`);
+      });
+      console.log('');
+
+    } catch (error) {
+      logger.error('Erro ao carregar configuração:', error);
+    }
   }
 
   constructor() {
@@ -161,15 +180,33 @@ class BotManagerService {
 
     try {
       logger.info('🚀 Iniciando bot...');
-      this.logConfig();
+      await this.logConfig();
 
-      // Verificar se a configuração é válida
-      const configManager = WebConfigManager.getInstance();
-      const config = configManager.getConfig();
+      // Verificar se a configuração é válida usando o novo sistema
+      let config: any;
+      try {
+        const { WalletConfigService } = require('../../../server/services/wallet-config.service');
+        config = await WalletConfigService.loadConfig();
 
-      if (!config.privateKey || config.jupApiKeys.length === 0) {
-        throw new Error('Configuração inválida: Private Key e Jupiter API Keys são obrigatórias. Configure na aba Configurações.');
+        // Validar se a configuração é válida para trading
+        const validation = await WalletConfigService.validateForTrading();
+        if (!validation.valid) {
+          throw new Error(`Configuração inválida: ${validation.errors.join(', ')}. Configure na aba Configurações.`);
+        }
+      } catch (error) {
+        // Fallback para WebConfigManager
+        const configManager = WebConfigManager.getInstance();
+        config = configManager.getConfig();
+
+        if (!config.privateKey || config.jupApiKeys.length === 0) {
+          throw new Error('Configuração inválida: Private Key e Jupiter API Keys são obrigatórias. Configure na aba Configurações.');
+        }
       }
+
+      // Atualizar SolanaService com a configuração web
+      logger.info('🔐 Atualizando carteira...');
+      const { solanaService } = require('./solana.service');
+      await solanaService.updateFromWebConfig();
 
       // Inicializar scraper
       logger.info('🔐 Inicializando scraper...');

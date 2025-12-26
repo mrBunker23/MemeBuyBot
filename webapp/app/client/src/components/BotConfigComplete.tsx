@@ -11,7 +11,6 @@ interface WebConfig {
   minScore: number;
   siteUrl: string;
   headless: boolean;
-  stages: Stage[];
   autoRestart: boolean;
   notifications: boolean;
   maxPositions: number;
@@ -19,29 +18,57 @@ interface WebConfig {
   stopLossPercent: number;
 }
 
-interface Stage {
-  name: string;
-  multiple: number;
-  sellPercent: number;
-}
-
 export function BotConfigComplete() {
   const [config, setConfig] = useState<WebConfig | null>(null)
   const [formData, setFormData] = useState<WebConfig | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [activeTab, setActiveTab] = useState<'essentials' | 'trading' | 'advanced' | 'other'>('essentials')
   const [showSensitive, setShowSensitive] = useState(false)
   const [newApiKey, setNewApiKey] = useState('')
+  const [detectedFormat, setDetectedFormat] = useState<'bytes' | 'base64' | 'base58' | 'unknown'>('unknown')
 
   useEffect(() => {
     loadConfig()
   }, [])
 
+  // Detectar formato automaticamente baseado no input
+  const detectKeyFormat = (input: string): 'bytes' | 'base64' | 'base58' | 'unknown' => {
+    const trimmed = input.trim()
+    if (!trimmed) return 'unknown'
+
+    // Formato bytes array: [1,2,3,...]
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      return 'bytes'
+    }
+
+    // Formato base58: caracteres específicos, tamanho ~87-88
+    if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed)) {
+      return 'base58'
+    }
+
+    // Formato base64: caracteres base64, múltiplo de 4, com/sem padding
+    if (/^[A-Za-z0-9+/]*(={0,2})$/.test(trimmed) && trimmed.length % 4 === 0 && trimmed.length > 20) {
+      return 'base64'
+    }
+
+    return 'unknown'
+  }
+
+  // Atualizar detecção quando a chave muda
+  useEffect(() => {
+    if (formData?.privateKey) {
+      const format = detectKeyFormat(formData.privateKey)
+      setDetectedFormat(format)
+    } else {
+      setDetectedFormat('unknown')
+    }
+  }, [formData?.privateKey])
+
   const loadConfig = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/bot/config')
+      const response = await fetch('/api/bot/wallet-config')
       if (!response.ok) throw new Error('Falha ao carregar')
 
       const data = await response.json()
@@ -63,7 +90,7 @@ export function BotConfigComplete() {
       setLoading(true)
       setMessage(null)
 
-      const response = await fetch('/api/bot/config', {
+      const response = await fetch('/api/bot/wallet-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -142,16 +169,38 @@ export function BotConfigComplete() {
     })
   }
 
-  const updateStage = (index: number, field: keyof Stage, value: number) => {
-    if (!formData) return
-    const newStages = [...formData.stages]
-    newStages[index] = { ...newStages[index], [field]: value }
-    setFormData({ ...formData, stages: newStages })
+  const getKeyPlaceholder = () => {
+    // Se já tem uma chave, não mostrar placeholder
+    if (formData?.privateKey) {
+      return ''
+    }
+
+    // Placeholder dinâmico baseado em diferentes formatos
+    return 'Cole sua chave privada em qualquer formato:\n• Array: [1,2,3,4,...]\n• Base64: SGVsbG9Xb3JsZA==\n• Base58: 5Hvs9g2p8pnq3QgzuCtHqn7yKX8N2k1mU4FzMpEeWqDa'
   }
+
+  const getFormatIcon = (format: typeof detectedFormat) => {
+    switch (format) {
+      case 'bytes': return '📋'
+      case 'base64': return '🔐'
+      case 'base58': return '🪙'
+      default: return '❓'
+    }
+  }
+
+  const getFormatName = (format: typeof detectedFormat) => {
+    switch (format) {
+      case 'bytes': return 'Array de Bytes'
+      case 'base64': return 'Base64'
+      case 'base58': return 'Base58 (Solana)'
+      case 'unknown': return 'Formato não detectado'
+    }
+  }
+
 
   if (loading && !formData) {
     return (
-      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6">
+      <div className="bg-gray-100 backdrop-blur-sm border border-gray-300 rounded-xl p-6">
         <div className="animate-pulse space-y-4">
           <div className="h-4 bg-white/10 rounded w-1/4"></div>
           <div className="h-4 bg-white/10 rounded w-3/4"></div>
@@ -163,11 +212,11 @@ export function BotConfigComplete() {
 
   if (!formData) {
     return (
-      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6">
+      <div className="bg-gray-100 backdrop-blur-sm border border-gray-300 rounded-xl p-6">
         <p className="text-gray-400">Erro ao carregar configurações</p>
         <button
           onClick={loadConfig}
-          className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          className="mt-4 px-4 py-2 bg-purple-600 text-gray-900 rounded-lg hover:bg-purple-700 transition-colors"
         >
           Tentar Novamente
         </button>
@@ -176,12 +225,12 @@ export function BotConfigComplete() {
   }
 
   return (
-    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6">
+    <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xl font-semibold text-white">Configurações Completas</h3>
+        <h3 className="text-xl font-semibold text-gray-900">Configurações Completas</h3>
         <button
           onClick={handleResetDefaults}
-          className="px-3 py-1 text-sm bg-red-500/20 border border-red-500/30 text-red-300 rounded-lg hover:bg-red-500/30 transition-colors"
+          className="px-3 py-1 text-sm bg-red-100 border border-red-300 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
         >
           Resetar Padrões
         </button>
@@ -197,36 +246,129 @@ export function BotConfigComplete() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Configurações Essenciais */}
-        <div>
-          <h4 className="text-lg font-medium text-white mb-4">🔑 Configurações Essenciais</h4>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Tabs Navigation */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            {[
+              { id: 'essentials', icon: '🔑', label: 'Essenciais' },
+              { id: 'trading', icon: '💰', label: 'Trading' },
+              { id: 'advanced', icon: '⚙️', label: 'Avançadas' },
+              { id: 'other', icon: '🔧', label: 'Outras' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`flex items-center gap-2 py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Tab Content */}
+        <div className="min-h-[400px]">
+          {/* Configurações Essenciais */}
+          {activeTab === 'essentials' && (
+            <div className="space-y-6">
+              <h4 className="text-lg font-medium text-gray-900">🔑 Configurações Essenciais</h4>
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Private Key Solana
-                <span className="text-red-400">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Private Key Solana
+                  <span className="text-red-400">*</span>
+                </label>
+
+                {/* Indicador de formato detectado */}
+                {formData?.privateKey && (
+                  <div className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-gray-100 border">
+                    <span>{getFormatIcon(detectedFormat)}</span>
+                    <span className={`font-medium ${
+                      detectedFormat === 'unknown' ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {getFormatName(detectedFormat)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
-                <input
-                  type={showSensitive ? 'text' : 'password'}
-                  value={formData.privateKey}
-                  onChange={handleInputChange('privateKey')}
-                  placeholder="[1,2,3,...] ou base58 string"
-                  className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
-                />
+                {showSensitive ? (
+                  <textarea
+                    rows={detectedFormat === 'bytes' ? 3 : 2}
+                    value={formData.privateKey}
+                    onChange={handleInputChange('privateKey')}
+                    placeholder={getKeyPlaceholder()}
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none resize-none"
+                  />
+                ) : (
+                  <input
+                    type="password"
+                    value={formData.privateKey}
+                    onChange={handleInputChange('privateKey')}
+                    placeholder="••••••••••••••••••••••••••••••••"
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={() => setShowSensitive(!showSensitive)}
-                  className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition-colors"
+                  className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 hover:bg-gray-100 transition-colors"
                 >
                   {showSensitive ? '🙈' : '👁️'}
                 </button>
               </div>
+
+              {/* Descrição dinâmica baseada no formato detectado ou instruções gerais */}
+              <div className="mt-2 text-xs text-gray-500 bg-gray-50 p-3 rounded border">
+                {!formData?.privateKey ? (
+                  <div>
+                    <strong className="text-gray-700">💡 Formatos Suportados:</strong>
+                    <br />• <strong>📋 Array de Bytes:</strong> [1,2,3,4,...] (como no .env)
+                    <br />• <strong>🔐 Base64:</strong> SGVsbG9Xb3JsZA== (codificação comum)
+                    <br />• <strong>🪙 Base58:</strong> 5Hvs9g2p8pnq3QgzuCtHqn7yKX8N2k1mU4FzMpEeWqDa (formato Solana)
+                    <br /><span className="text-green-600 font-medium">✨ O formato será detectado automaticamente!</span>
+                  </div>
+                ) : detectedFormat === 'bytes' ? (
+                  <div>
+                    <strong className="text-green-700">📋 Array de Bytes detectado!</strong>
+                    <br />Este é o formato usado no arquivo .env. Perfeito para migração!
+                  </div>
+                ) : detectedFormat === 'base64' ? (
+                  <div>
+                    <strong className="text-green-700">🔐 Base64 detectado!</strong>
+                    <br />Formato de codificação binária. Será convertido automaticamente.
+                  </div>
+                ) : detectedFormat === 'base58' ? (
+                  <div>
+                    <strong className="text-green-700">🪙 Base58 detectado!</strong>
+                    <br />Formato nativo do Solana. Excelente escolha!
+                  </div>
+                ) : (
+                  <div>
+                    <strong className="text-red-700">❓ Formato não reconhecido</strong>
+                    <br />Verifique se a chave está em um dos formatos suportados acima.
+                  </div>
+                )}
+              </div>
+
+              {/* Dica de segurança */}
+              <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-800">
+                <strong>⚠️ Segurança:</strong> Nunca compartilhe sua chave privada.
+                Ela dá controle total sobre sua carteira!
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Jupiter API Keys
                 <span className="text-red-400">*</span>
                 <span className="text-xs text-gray-400 ml-2">(Múltiplas para rotação)</span>
@@ -238,7 +380,7 @@ export function BotConfigComplete() {
                       type={showSensitive ? 'text' : 'password'}
                       value={key}
                       readOnly
-                      className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-400"
+                      className="flex-1 px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-400"
                     />
                     <button
                       type="button"
@@ -255,7 +397,7 @@ export function BotConfigComplete() {
                     value={newApiKey}
                     onChange={(e) => setNewApiKey(e.target.value)}
                     placeholder="Nova Jupiter API Key"
-                    className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
                   />
                   <button
                     type="button"
@@ -268,14 +410,16 @@ export function BotConfigComplete() {
               </div>
             </div>
           </div>
-        </div>
+            </div>
+          )}
 
-        {/* Configurações de Trading */}
-        <div>
-          <h4 className="text-lg font-medium text-white mb-4">💰 Trading</h4>
+          {/* Configurações de Trading */}
+          {activeTab === 'trading' && (
+            <div className="space-y-6">
+              <h4 className="text-lg font-medium text-gray-900">💰 Configurações de Trading</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Valor por Token (SOL)
               </label>
               <input
@@ -285,12 +429,12 @@ export function BotConfigComplete() {
                 max="1"
                 value={formData.amountSol}
                 onChange={handleInputChange('amountSol')}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Slippage (BPS)
               </label>
               <input
@@ -299,12 +443,12 @@ export function BotConfigComplete() {
                 max="10000"
                 value={formData.slippageBps}
                 onChange={handleInputChange('slippageBps')}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Score Mínimo
               </label>
               <input
@@ -312,12 +456,12 @@ export function BotConfigComplete() {
                 min="0"
                 value={formData.minScore}
                 onChange={handleInputChange('minScore')}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Máximo de Posições
               </label>
               <input
@@ -326,63 +470,20 @@ export function BotConfigComplete() {
                 max="50"
                 value={formData.maxPositions}
                 onChange={handleInputChange('maxPositions')}
-                className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
               />
             </div>
           </div>
-        </div>
+            </div>
+          )}
 
-        {/* Take Profit Stages */}
-        <div>
-          <h4 className="text-lg font-medium text-white mb-4">📊 Take Profit</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {formData.stages.map((stage, index) => (
-              <div key={stage.name} className="bg-white/5 border border-white/10 rounded-lg p-4">
-                <h5 className="text-sm font-medium text-white mb-3">{stage.name.toUpperCase()}</h5>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Múltiplo</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="1"
-                      value={stage.multiple}
-                      onChange={(e) => updateStage(index, 'multiple', parseFloat(e.target.value) || 1)}
-                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1">Venda %</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={stage.sellPercent}
-                      onChange={(e) => updateStage(index, 'sellPercent', parseFloat(e.target.value) || 1)}
-                      className="w-full px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-sm focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Configurações Avançadas */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-lg font-medium text-white mb-4 hover:text-purple-300 transition-colors"
-          >
-            {showAdvanced ? '🔽' : '▶️'} Configurações Avançadas
-          </button>
-
-          {showAdvanced && (
-            <div className="space-y-4">
+          {/* Configurações Avançadas */}
+          {activeTab === 'advanced' && (
+            <div className="space-y-6">
+              <h4 className="text-lg font-medium text-gray-900">⚙️ Configurações Avançadas</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Intervalo de Verificação (ms)
                   </label>
                   <input
@@ -390,12 +491,12 @@ export function BotConfigComplete() {
                     min="1000"
                     value={formData.checkIntervalMs}
                     onChange={handleInputChange('checkIntervalMs')}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Intervalo de Preços (s)
                   </label>
                   <input
@@ -403,26 +504,46 @@ export function BotConfigComplete() {
                     min="1"
                     value={formData.priceCheckSeconds}
                     onChange={handleInputChange('priceCheckSeconds')}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     RPC URL
                   </label>
                   <input
                     type="url"
                     value={formData.rpcUrl}
                     onChange={handleInputChange('rpcUrl')}
-                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Outras Configurações */}
+          {activeTab === 'other' && (
+            <div className="space-y-6">
+              <h4 className="text-lg font-medium text-gray-900">🔧 Outras Configurações</h4>
+
+              {/* Site URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Site URL
+                </label>
+                <input
+                  type="url"
+                  value={formData.siteUrl}
+                  onChange={handleInputChange('siteUrl')}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
+                />
+              </div>
 
               {/* Checkboxes */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.headless}
@@ -432,7 +553,7 @@ export function BotConfigComplete() {
                   Headless Browser
                 </label>
 
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.autoRestart}
@@ -442,7 +563,7 @@ export function BotConfigComplete() {
                   Auto Restart
                 </label>
 
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.notifications}
@@ -452,7 +573,7 @@ export function BotConfigComplete() {
                   Notificações
                 </label>
 
-                <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.stopLossEnabled}
@@ -465,7 +586,7 @@ export function BotConfigComplete() {
 
               {formData.stopLossEnabled && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Stop Loss %
                   </label>
                   <input
@@ -474,7 +595,7 @@ export function BotConfigComplete() {
                     max="99"
                     value={formData.stopLossPercent}
                     onChange={handleInputChange('stopLossPercent')}
-                    className="w-full max-w-xs px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none"
+                    className="w-full max-w-xs px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
               )}
@@ -482,7 +603,8 @@ export function BotConfigComplete() {
           )}
         </div>
 
-        <div className="flex gap-3 pt-4 border-t border-white/10">
+        {/* Botões de Ação - Sempre visíveis */}
+        <div className="flex gap-3 pt-4 border-t border-gray-300">
           <button
             type="submit"
             disabled={loading}
@@ -495,7 +617,7 @@ export function BotConfigComplete() {
             type="button"
             onClick={loadConfig}
             disabled={loading}
-            className="px-4 py-3 bg-white/10 border border-white/20 text-white rounded-lg font-medium hover:bg-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-3 bg-gray-50 border border-gray-300 text-gray-900 rounded-lg font-medium hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Recarregar
           </button>

@@ -1,5 +1,6 @@
 import { Connection, Keypair, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { WalletConfigService } from "@/app/server/services/wallet-config.service"
 import bs58 from 'bs58';
 import { config } from '../config';
 import type { TokenBalance } from '../types';
@@ -7,10 +8,12 @@ import type { TokenBalance } from '../types';
 class SolanaService {
   public connection: Connection;
   public wallet: Keypair;
+  private currentPrivateKey: string = '';
 
   constructor() {
     this.connection = new Connection(config.rpcUrl, 'confirmed');
     this.wallet = this.loadWallet(config.privateKey);
+    this.currentPrivateKey = config.privateKey;
 
     console.log('🔥 Wallet:', this.wallet.publicKey.toString());
   }
@@ -130,6 +133,82 @@ class SolanaService {
     });
 
     return sig;
+  }
+
+  /**
+   * Obtém o endereço público da carteira
+   */
+  async getWalletAddress(): Promise<string> {
+    return this.wallet.publicKey.toString();
+  }
+
+  /**
+   * Obtém o saldo SOL da carteira (em lamports)
+   */
+  async getSolBalance(): Promise<number> {
+    return await this.connection.getBalance(this.wallet.publicKey);
+  }
+
+  /**
+   * Recarrega a carteira com uma nova chave privada
+   */
+  async reloadWallet(privateKey: string): Promise<void> {
+    if (this.currentPrivateKey !== privateKey) {
+      console.log('🔄 Recarregando carteira com nova chave...');
+      this.wallet = this.loadWallet(privateKey);
+      this.currentPrivateKey = privateKey;
+      console.log('🔥 Nova Wallet:', this.wallet.publicKey.toString());
+    }
+  }
+
+  /**
+   * Atualiza a carteira usando a configuração web atual
+   */
+  async updateFromWebConfig(): Promise<void> {
+    try {
+      // Tentar carregar do WalletConfigService
+      const config = await WalletConfigService.loadConfig();
+
+      if (config.privateKey && config.privateKey !== this.currentPrivateKey) {
+        await this.reloadWallet(config.privateKey);
+      }
+    } catch (error) {
+      console.warn('Não foi possível atualizar carteira do WalletConfigService:', error);
+    }
+  }
+
+  /**
+   * Obtém todos os saldos de tokens na carteira
+   */
+  async getAllTokenBalances(): Promise<Array<{
+    mint: string;
+    amount: number;
+    decimals: number;
+    symbol?: string;
+    address: string;
+  }>> {
+    const tokenMap = await this.getAllTokenAccounts();
+    const balances: Array<{
+      mint: string;
+      amount: number;
+      decimals: number;
+      symbol?: string;
+      address: string;
+    }> = [];
+
+    for (const [mint, tokenBalance] of tokenMap) {
+      if (Number(tokenBalance.amount) > 0) {
+        balances.push({
+          mint,
+          amount: Number(tokenBalance.amount),
+          decimals: tokenBalance.decimals,
+          symbol: undefined, // Será preenchido pelo Jupiter se disponível
+          address: tokenBalance.ata
+        });
+      }
+    }
+
+    return balances;
   }
 }
 

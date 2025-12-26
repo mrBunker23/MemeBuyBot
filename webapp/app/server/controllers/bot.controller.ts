@@ -18,7 +18,10 @@ export class BotController {
         status: botManagerService.getStatus()
       };
     } catch (error) {
+      console.error('ERRO DETALHADO AO INICIAR BOT:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      const stack = error instanceof Error ? error.stack : 'Sem stack trace';
+      console.error('Stack trace:', stack);
       throw new Error(`Falha ao iniciar bot: ${errorMessage}`);
     }
   }

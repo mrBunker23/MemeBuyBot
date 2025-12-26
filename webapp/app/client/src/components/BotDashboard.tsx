@@ -3,10 +3,11 @@ import { api, getErrorMessage } from '../lib/eden-api'
 import { BotStatus } from './BotStatus'
 import { PositionsTable } from './PositionsTable'
 import { BotControls } from './BotControls'
-import { BotConfigSimple } from './BotConfigSimple'
+import { BotConfigComplete } from './BotConfigComplete'
 import { BotStats } from './BotStats'
 import { BotLogs } from './BotLogs'
-import { TakeProfitManager } from './TakeProfitManager'
+import { TakeProfitManagerComplete } from './TakeProfitManagerComplete'
+import { BotWallet } from './BotWallet'
 
 interface BotStatusData {
   isRunning: boolean;
@@ -51,7 +52,7 @@ export function BotDashboard() {
   const [positions, setPositions] = useState<PositionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'config' | 'takeprofit' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'wallet' | 'config' | 'takeprofit' | 'logs'>('overview');
 
   // Função para buscar dados iniciais
   const fetchData = async () => {
@@ -93,12 +94,14 @@ export function BotDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  const tabClasses = (tab: string) =>
-    `px-4 py-2 rounded-lg font-medium transition-colors ${
-      activeTab === tab
-        ? 'bg-blue-500 text-white'
-        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-    }`;
+  const menuItems = [
+    { id: 'overview', icon: '📊', label: 'Visão Geral', color: 'from-blue-500 to-cyan-500' },
+    { id: 'positions', icon: '💼', label: 'Posições', color: 'from-green-500 to-emerald-500' },
+    { id: 'wallet', icon: '💰', label: 'Carteira', color: 'from-yellow-500 to-amber-500' },
+    { id: 'config', icon: '⚙️', label: 'Configurações', color: 'from-gray-500 to-slate-500' },
+    { id: 'takeprofit', icon: '🎯', label: 'Take Profits', color: 'from-purple-500 to-violet-500' },
+    { id: 'logs', icon: '📋', label: 'Logs', color: 'from-indigo-500 to-blue-500' },
+  ];
 
   if (loading && !botStatus) {
     return (
@@ -129,67 +132,156 @@ export function BotDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => window.history.back()}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-              >
-                ← Voltar
-              </button>
-              <h1 className="text-3xl font-bold text-gray-900">
-                🤖 Token Finder Bot
-              </h1>
-            </div>
-            {botStatus && <BotStatus status={botStatus} />}
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50 flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-white/90 backdrop-blur-sm shadow-2xl border-r border-white/20 flex flex-col relative overflow-hidden">
+        {/* Gradient Background Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-blue-600/5 via-purple-600/5 to-indigo-600/10"></div>
 
-          {/* Navegação das abas */}
-          <div className="flex space-x-2 pb-4">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={tabClasses('overview')}
-            >
-              Visão Geral
-            </button>
-            <button
-              onClick={() => setActiveTab('positions')}
-              className={tabClasses('positions')}
-            >
-              Posições
-            </button>
-            <button
-              onClick={() => setActiveTab('config')}
-              className={tabClasses('config')}
-            >
-              Configurações
-            </button>
-            <button
-              onClick={() => setActiveTab('takeprofit')}
-              className={tabClasses('takeprofit')}
-            >
-              🎯 Take Profits
-            </button>
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={tabClasses('logs')}
-            >
-              Logs
-            </button>
+        {/* Header da Sidebar */}
+        <div className="relative p-6 border-b border-gray-200/50">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+              <span className="text-white text-lg">🤖</span>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">Token Finder</h2>
+              <p className="text-sm font-medium text-gray-500">Trading Bot v2.0</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Status do Bot */}
+        <div className="relative p-4 border-b border-gray-200/50">
+          {botStatus && <BotStatus status={botStatus} />}
+        </div>
+
+        {/* Menu Items */}
+        <nav className="relative flex-1 p-4">
+          <ul className="space-y-2">
+            {menuItems.map((item, index) => (
+              <li key={item.id} style={{ animationDelay: `${index * 100}ms` }} className="animate-fade-in">
+                <button
+                  onClick={() => setActiveTab(item.id as typeof activeTab)}
+                  className={`group w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-300 transform hover:scale-105 relative overflow-hidden ${
+                    activeTab === item.id
+                      ? 'bg-gradient-to-r ' + item.color + ' text-white shadow-lg shadow-blue-500/25'
+                      : 'text-gray-700 hover:bg-white/70 hover:shadow-md'
+                  }`}
+                >
+                  {/* Background gradient for active item */}
+                  {activeTab === item.id && (
+                    <div className="absolute inset-0 bg-gradient-to-r opacity-10 blur-sm"></div>
+                  )}
+
+                  {/* Icon with background */}
+                  <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
+                    activeTab === item.id
+                      ? 'bg-white/20'
+                      : 'bg-gray-100 group-hover:bg-white'
+                  }`}>
+                    <span className="text-lg">{item.icon}</span>
+                  </div>
+
+                  {/* Label */}
+                  <span className={`relative font-semibold transition-all duration-300 ${
+                    activeTab === item.id
+                      ? 'text-white'
+                      : 'text-gray-700 group-hover:text-gray-900'
+                  }`}>
+                    {item.label}
+                  </span>
+
+                  {/* Active indicator */}
+                  {activeTab === item.id && (
+                    <div className="absolute right-3 w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* Footer da Sidebar */}
+        <div className="relative p-4 border-t border-gray-200/50">
+          <button
+            onClick={() => window.history.back()}
+            className="group w-full flex items-center space-x-3 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100/70 rounded-lg transition-all duration-300"
+          >
+            <div className="w-6 h-6 flex items-center justify-center">
+              <span className="transform group-hover:-translate-x-1 transition-transform duration-300">←</span>
+            </div>
+            <span className="font-medium">Voltar</span>
+          </button>
+
+          {/* Version info */}
+          <div className="mt-3 pt-3 border-t border-gray-200/50 text-center">
+            <p className="text-xs text-gray-400 font-medium">
+              Powered by Claude Code
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Conteúdo principal */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Conteúdo Principal */}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Header Principal */}
+        <div className="bg-white/80 backdrop-blur-sm shadow-lg border-b border-white/20 px-6 py-4 relative">
+          {/* Gradient background */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-50/30 to-purple-50/30"></div>
+
+          <div className="relative flex justify-between items-center">
+            {/* Title with gradient and icon */}
+            <div className="flex items-center space-x-3 animate-slide-in-right">
+              <div className={`w-10 h-10 rounded-xl bg-gradient-to-r ${
+                menuItems.find(item => item.id === activeTab)?.color || 'from-gray-500 to-slate-500'
+              } flex items-center justify-center shadow-lg hover-lift animate-bounce-in`}>
+                <span className="text-white text-lg">
+                  {menuItems.find(item => item.id === activeTab)?.icon || '📊'}
+                </span>
+              </div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-800 via-blue-600 to-purple-600 bg-clip-text text-transparent animate-gradient-x">
+                {menuItems.find(item => item.id === activeTab)?.label || 'Dashboard'}
+              </h1>
+            </div>
+
+            {/* Date with better styling */}
+            <div className="flex flex-col items-end">
+              <div className="text-sm font-semibold text-gray-700">
+                {new Date().toLocaleDateString('pt-BR', {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric'
+                })}
+              </div>
+              <div className="text-xs text-gray-500">
+                {new Date().toLocaleTimeString('pt-BR', {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Área de Conteúdo */}
+        <div className="flex-1 overflow-auto p-6 relative">
+          {/* Background pattern */}
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-100 via-transparent to-purple-100"></div>
+          </div>
+
+          <div className="relative z-10">
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            <p className="font-bold">Erro</p>
-            <p>{error}</p>
+          <div className="bg-gradient-to-r from-red-50 to-pink-50 border border-red-300 text-red-800 px-6 py-4 rounded-xl mb-6 shadow-md">
+            <div className="flex items-center space-x-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <p className="font-bold text-lg">Erro</p>
+                <p className="text-sm">{error}</p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -245,17 +337,23 @@ export function BotDashboard() {
           </div>
         )}
 
+        {activeTab === 'wallet' && (
+          <BotWallet />
+        )}
+
         {activeTab === 'config' && (
-          <BotConfigSimple />
+          <BotConfigComplete />
         )}
 
         {activeTab === 'takeprofit' && (
-          <TakeProfitManager />
+          <TakeProfitManagerComplete />
         )}
 
         {activeTab === 'logs' && (
           <BotLogs />
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

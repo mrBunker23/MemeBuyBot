@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia"
 import { usersRoutes } from "./users.routes"
 import { botRoutes } from "./bot.routes"
 import { botWebSocketRoutes } from "./bot-websocket.routes"
+// import { configRoutes } from "./config.routes" // Temporariamente removido - usando rotas do bot
 // import { takeProfitRoutes } from "./takeprofit.routes" // Temporariamente removido
 
 export const apiRoutes = new Elysia({ prefix: "/api" })
@@ -41,5 +42,7 @@ export const apiRoutes = new Elysia({ prefix: "/api" })
   .use(botRoutes)
   // Register bot WebSocket routes
   .use(botWebSocketRoutes)
+  // Register config routes
+  // .use(configRoutes) // Temporariamente removido - usando rotas do bot
   // Register take profit routes
   // .use(takeProfitRoutes) // Temporariamente removido

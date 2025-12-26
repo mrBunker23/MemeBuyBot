@@ -84,9 +84,28 @@ class BotWebSocketService {
     }
   }
 
+  // Converter BigInt para string para serialização JSON
+  private serializeForWebSocket(obj: any): string {
+    return JSON.stringify(obj, (key, value) => {
+      // Converter BigInt para string
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      // Verificar se é um objeto com propriedades BigInt
+      if (value && typeof value === 'object') {
+        for (const prop in value) {
+          if (typeof value[prop] === 'bigint') {
+            value[prop] = value[prop].toString();
+          }
+        }
+      }
+      return value;
+    });
+  }
+
   // Enviar mensagem para clientes inscritos
   private broadcast(message: WebSocketMessage): void {
-    const messageStr = JSON.stringify(message);
+    const messageStr = this.serializeForWebSocket(message);
 
     this.clients.forEach((client) => {
       // Verificar se o cliente está inscrito neste tipo de evento
@@ -166,7 +185,7 @@ class BotWebSocketService {
     const client = this.clients.get(clientId);
     if (client) {
       try {
-        client.ws.send(JSON.stringify(message));
+        client.ws.send(this.serializeForWebSocket(message));
       } catch (error) {
         console.error(`Error sending message to client ${clientId}:`, error);
         this.removeClient(clientId);

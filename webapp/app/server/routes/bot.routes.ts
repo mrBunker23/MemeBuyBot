@@ -168,46 +168,22 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
     }
   })
 
-  // GET /api/bot/takeprofit - Rota simples para testar TPs
+  // GET /api/bot/takeprofit - Listar TPs dinâmicos
   .get("/takeprofit", () => {
-    return {
-      success: true,
-      stages: [
-        {
-          id: 'tp1-default',
-          name: 'Quick Profit',
-          multiple: 2,
-          sellPercent: 50,
-          enabled: true,
-          order: 1
-        },
-        {
-          id: 'tp2-default',
-          name: 'Medium Gain',
-          multiple: 5,
-          sellPercent: 50,
-          enabled: true,
-          order: 2
-        },
-        {
-          id: 'tp3-default',
-          name: 'Big Profit',
-          multiple: 10,
-          sellPercent: 50,
-          enabled: true,
-          order: 3
-        },
-        {
-          id: 'tp4-default',
-          name: 'Moon Shot',
-          multiple: 20,
-          sellPercent: 100,
-          enabled: true,
-          order: 4
-        }
-      ],
-      validation: { valid: true, errors: [] }
-    };
+    try {
+      const { takeProfitStorage } = require('../services/takeprofit-storage');
+      const stages = takeProfitStorage.getAllStages();
+      const validation = takeProfitStorage.validate();
+
+      return {
+        success: true,
+        stages,
+        validation
+      };
+    } catch (error) {
+      console.error('Erro ao buscar Take Profits:', error);
+      throw new Error('Falha ao carregar Take Profits');
+    }
   }, {
     response: t.Object({
       success: t.Boolean(),
@@ -247,15 +223,14 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
         throw new Error('Percentual de venda deve estar entre 1% e 100%');
       }
 
-      // Simular criação por enquanto (API em desenvolvimento)
-      const newStage = {
-        id: `tp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      // Criar TP real
+      const { takeProfitStorage } = require('../services/takeprofit-storage');
+      const newStage = takeProfitStorage.addStage({
         name: name.toString(),
         multiple: Number(multiple),
         sellPercent: Number(sellPercent),
-        enabled: enabled !== undefined ? Boolean(enabled) : true,
-        order: 5 // Simular nova ordem
-      };
+        enabled: enabled !== undefined ? Boolean(enabled) : true
+      });
 
       return {
         success: true,
@@ -297,6 +272,12 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
   .put("/takeprofit/:id", ({ params, body }: { params: { id: string }, body: any }) => {
     try {
       const { id } = params;
+      const { takeProfitStorage } = require('../services/takeprofit-storage');
+
+      const success = takeProfitStorage.updateStage(id, body);
+      if (!success) {
+        throw new Error('Take Profit não encontrado');
+      }
 
       return {
         success: true,
@@ -331,6 +312,12 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
   .delete("/takeprofit/:id", ({ params }: { params: { id: string } }) => {
     try {
       const { id } = params;
+      const { takeProfitStorage } = require('../services/takeprofit-storage');
+
+      const success = takeProfitStorage.deleteStage(id);
+      if (!success) {
+        throw new Error('Take Profit não encontrado');
+      }
 
       return {
         success: true,
@@ -355,6 +342,274 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
     }
   })
 
+  // GET /api/bot/wallet-config - Obter configuração de carteira
+  .get("/wallet-config", async () => {
+    try {
+      const { WalletConfigService } = require('../services/wallet-config.service');
+      const config = await WalletConfigService.loadConfig();
+
+      // Retornar configuração com chave privada ofuscada para segurança
+      return {
+        success: true,
+        config: {
+          ...config,
+          privateKey: config.privateKey ? '••••••••••••••••••••••••••••••••' : '' // Ofuscar para segurança
+        }
+      };
+    } catch (error) {
+      console.error('Erro ao carregar wallet config:', error);
+      throw new Error('Falha ao carregar configuração da carteira');
+    }
+  }, {
+    response: t.Object({
+      success: t.Boolean(),
+      config: t.Object({
+        privateKey: t.String(),
+        jupApiKeys: t.Array(t.String()),
+        rpcUrl: t.String(),
+        amountSol: t.Number(),
+        slippageBps: t.Number(),
+        checkIntervalMs: t.Number(),
+        priceCheckSeconds: t.Number(),
+        minScore: t.Number()
+      })
+    }),
+    detail: {
+      tags: ['Bot'],
+      summary: 'Obter configuração da carteira',
+      description: 'Retorna a configuração atual da carteira e APIs'
+    }
+  })
+
+  // PUT /api/bot/wallet-config - Atualizar configuração de carteira
+  .put("/wallet-config", async ({ body }: { body: any }) => {
+    try {
+      const { WalletConfigService } = require('../services/wallet-config.service');
+
+      // Usar o serviço real para validar e atualizar
+      const result = await WalletConfigService.updateConfig(body);
+
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      // Retornar com chave privada ofuscada
+      return {
+        success: true,
+        message: result.message,
+        config: {
+          ...result.config,
+          privateKey: result.config.privateKey ? '••••••••••••••••••••••••••••••••' : ''
+        }
+      };
+    } catch (error) {
+      console.error('Erro ao atualizar wallet config:', error);
+      throw new Error(`Falha ao atualizar configuração: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }, {
+    body: t.Object({
+      privateKey: t.Optional(t.String()),
+      jupApiKeys: t.Optional(t.Array(t.String())),
+      rpcUrl: t.Optional(t.String()),
+      amountSol: t.Optional(t.Number()),
+      slippageBps: t.Optional(t.Number()),
+      checkIntervalMs: t.Optional(t.Number()),
+      priceCheckSeconds: t.Optional(t.Number()),
+      minScore: t.Optional(t.Number()),
+      siteUrl: t.Optional(t.String()),
+      headless: t.Optional(t.Boolean()),
+      autoRestart: t.Optional(t.Boolean()),
+      notifications: t.Optional(t.Boolean()),
+      maxPositions: t.Optional(t.Number()),
+      stopLossEnabled: t.Optional(t.Boolean()),
+      stopLossPercent: t.Optional(t.Number())
+    }),
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+      config: t.Object({
+        privateKey: t.String(),
+        jupApiKeys: t.Array(t.String()),
+        rpcUrl: t.String(),
+        amountSol: t.Number(),
+        slippageBps: t.Number(),
+        checkIntervalMs: t.Number(),
+        priceCheckSeconds: t.Number(),
+        minScore: t.Number(),
+        siteUrl: t.Optional(t.String()),
+        headless: t.Optional(t.Boolean()),
+        autoRestart: t.Optional(t.Boolean()),
+        notifications: t.Optional(t.Boolean()),
+        maxPositions: t.Optional(t.Number()),
+        stopLossEnabled: t.Optional(t.Boolean()),
+        stopLossPercent: t.Optional(t.Number())
+      })
+    }),
+    detail: {
+      tags: ['Bot'],
+      summary: 'Atualizar configuração da carteira',
+      description: 'Atualiza a configuração da carteira e APIs'
+    }
+  })
+
+  // GET /api/bot/wallet - Obter dados da carteira
+  .get("/wallet", async () => {
+    try {
+      const { WalletConfigService } = require('../services/wallet-config.service');
+      const config = await WalletConfigService.loadConfig();
+
+      if (!config.privateKey) {
+        return {
+          success: false,
+          message: 'Carteira não configurada',
+          wallet: null
+        };
+      }
+
+      // Obter endereço público da carteira
+      let publicAddress = '';
+      let solBalance = 0;
+      let tokens: any[] = [];
+      let totalValueUsd = 0;
+
+      try {
+        const { solanaService } = require('../../shared/bot/services/solana.service');
+        const { jupiterService } = require('../../shared/bot/services/jupiter.service');
+
+        // IMPORTANTE: Atualizar a carteira com a configuração web atual
+        await solanaService.updateFromWebConfig();
+
+        // Obter endereço público
+        publicAddress = await solanaService.getWalletAddress();
+
+        // Obter saldo SOL
+        const balance = await solanaService.getSolBalance();
+        solBalance = balance / 1e9; // Converter de lamports para SOL
+
+        // Obter todos os tokens na carteira
+        const tokenAccounts = await solanaService.getAllTokenBalances();
+
+        // Para cada token, obter informações detalhadas
+        for (const tokenAccount of tokenAccounts) {
+          try {
+            const price = await jupiterService.getUsdPrice(tokenAccount.mint);
+            const amount = tokenAccount.amount / Math.pow(10, tokenAccount.decimals || 9);
+            const valueUsd = price ? price * amount : 0;
+
+            tokens.push({
+              mint: tokenAccount.mint,
+              symbol: tokenAccount.symbol || 'Unknown',
+              amount: amount,
+              decimals: tokenAccount.decimals || 9,
+              priceUsd: price || 0,
+              valueUsd: valueUsd,
+              address: tokenAccount.address
+            });
+
+            totalValueUsd += valueUsd;
+          } catch (tokenError) {
+            console.error(`Erro ao processar token ${tokenAccount.mint}:`, tokenError);
+          }
+        }
+
+        // Adicionar valor SOL ao total
+        const solPrice = await jupiterService.getUsdPrice(config.solMint || 'So11111111111111111111111111111111111111112');
+        const solValueUsd = solPrice ? solPrice * solBalance : 0;
+        totalValueUsd += solValueUsd;
+
+        // Adicionar SOL como primeiro item
+        tokens.unshift({
+          mint: config.solMint || 'So11111111111111111111111111111111111111112',
+          symbol: 'SOL',
+          amount: solBalance,
+          decimals: 9,
+          priceUsd: solPrice || 0,
+          valueUsd: solValueUsd,
+          address: publicAddress
+        });
+
+      } catch (serviceError) {
+        console.error('Erro ao obter dados da carteira:', serviceError);
+        // Retornar dados básicos mesmo se houver erro
+      }
+
+      return {
+        success: true,
+        wallet: {
+          publicAddress,
+          solBalance,
+          totalValueUsd,
+          tokensCount: tokens.length,
+          tokens: tokens.sort((a, b) => b.valueUsd - a.valueUsd), // Ordenar por valor
+          lastUpdated: new Date().toISOString()
+        }
+      };
+
+    } catch (error) {
+      console.error('Erro ao buscar dados da carteira:', error);
+      throw new Error('Falha ao carregar dados da carteira');
+    }
+  }, {
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.Optional(t.String()),
+      wallet: t.Union([
+        t.Null(),
+        t.Object({
+          publicAddress: t.String(),
+          solBalance: t.Number(),
+          totalValueUsd: t.Number(),
+          tokensCount: t.Number(),
+          tokens: t.Array(t.Object({
+            mint: t.String(),
+            symbol: t.String(),
+            amount: t.Number(),
+            decimals: t.Number(),
+            priceUsd: t.Number(),
+            valueUsd: t.Number(),
+            address: t.String()
+          })),
+          lastUpdated: t.String()
+        })
+      ])
+    }),
+    detail: {
+      tags: ['Bot'],
+      summary: 'Obter dados da carteira',
+      description: 'Retorna informações da carteira: endereço, saldos e tokens'
+    }
+  })
+
+  // POST /api/bot/wallet/refresh - Forçar atualização da carteira
+  .post("/wallet/refresh", async () => {
+    try {
+      const { solanaService } = require('../../shared/bot/services/solana.service');
+
+      // Forçar atualização da carteira com a configuração web atual
+      await solanaService.updateFromWebConfig();
+
+      return {
+        success: true,
+        message: 'Carteira atualizada com sucesso',
+        newAddress: await solanaService.getWalletAddress()
+      };
+    } catch (error) {
+      console.error('Erro ao atualizar carteira:', error);
+      throw new Error('Falha ao atualizar carteira');
+    }
+  }, {
+    response: t.Object({
+      success: t.Boolean(),
+      message: t.String(),
+      newAddress: t.String()
+    }),
+    detail: {
+      tags: ['Bot'],
+      summary: 'Forçar atualização da carteira',
+      description: 'Força a atualização da carteira com as configurações mais recentes'
+    }
+  })
+
   // POST /api/bot/takeprofit/:id/toggle - Habilitar/Desabilitar TP
   .post("/takeprofit/:id/toggle", ({ params, body }: { params: { id: string }, body: any }) => {
     try {
@@ -363,6 +618,13 @@ export const botRoutes = new Elysia({ prefix: "/bot" })
 
       if (typeof enabled !== 'boolean') {
         throw new Error('Campo enabled deve ser boolean');
+      }
+
+      const { takeProfitStorage } = require('../services/takeprofit-storage');
+      const success = takeProfitStorage.toggleStage(id, enabled);
+
+      if (!success) {
+        throw new Error('Take Profit não encontrado');
       }
 
       return {

@@ -35,34 +35,26 @@ export function BotStatus({ status }: BotStatusProps) {
   };
 
   return (
-    <div className="flex items-center space-x-4">
+    <div className="space-y-2">
       {/* Status indicator */}
       <div className="flex items-center space-x-2">
         <div
-          className={`w-3 h-3 rounded-full ${
+          className={`w-2 h-2 rounded-full ${
             status.isRunning ? 'bg-green-500' : 'bg-red-500'
           }`}
         />
-        <span className="font-medium text-gray-900">
+        <span className="font-medium text-gray-900 text-sm">
           {status.isRunning ? 'Rodando' : 'Parado'}
         </span>
       </div>
 
-      {/* Uptime */}
-      {status.isRunning && (
-        <div className="text-sm text-gray-500">
-          Uptime: {formatUptime(status.startedAt)}
-        </div>
-      )}
-
-      {/* Tokens monitorados */}
-      <div className="text-sm text-gray-500">
-        Monitorando: {status.tokensMonitored} tokens
-      </div>
-
-      {/* Última verificação */}
-      <div className="text-sm text-gray-500">
-        Última verificação: {formatLastCheck(status.lastCheck)}
+      {/* Informações compactas */}
+      <div className="text-xs text-gray-500 space-y-1">
+        <div>Monitorando: {status.tokensMonitored} tokens</div>
+        <div>Última verificação: {formatLastCheck(status.lastCheck)}</div>
+        {status.isRunning && (
+          <div>Uptime: {formatUptime(status.startedAt)}</div>
+        )}
       </div>
     </div>
   );

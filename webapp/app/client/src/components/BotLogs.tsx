@@ -11,32 +11,67 @@ interface LogEntry {
 export function BotLogs() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filter, setFilter] = useState<'all' | 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR'>('all');
+  const [hasMoreLogs, setHasMoreLogs] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [totalLogs, setTotalLogs] = useState(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
+  const LOGS_PER_PAGE = 50; // Quantidade de logs por carregamento
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (isLoadMore = false, customOffset?: number) => {
     try {
-      if (loading) {
+      if (!isLoadMore) {
         setError(null);
       }
+      if (isLoadMore) {
+        setLoadingMore(true);
+      }
 
+      // Sempre buscar os logs mais recentes por padrão
       const response = await api.bot.logs.get();
 
       if (response.error) {
         throw new Error(getErrorMessage(response.error));
       }
 
-      setLogs(response.data.logs || []);
+      const allLogs = response.data.logs || [];
+      const currentOffset = customOffset ?? offset;
+
+      if (!isLoadMore) {
+        // Primeira carga: pegar apenas os últimos logs
+        const recentLogs = allLogs.slice(-LOGS_PER_PAGE);
+        setLogs(recentLogs);
+        setTotalLogs(allLogs.length);
+        setHasMoreLogs(allLogs.length > LOGS_PER_PAGE);
+        setOffset(Math.max(0, allLogs.length - LOGS_PER_PAGE));
+      } else {
+        // Carregamento adicional: pegar logs anteriores
+        const newOffset = Math.max(0, currentOffset - LOGS_PER_PAGE);
+        const olderLogs = allLogs.slice(newOffset, currentOffset);
+
+        setLogs(prevLogs => [...olderLogs, ...prevLogs]);
+        setOffset(newOffset);
+        setHasMoreLogs(newOffset > 0);
+      }
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       if (loading) {
         setLoading(false);
       }
+      if (isLoadMore) {
+        setLoadingMore(false);
+      }
     }
+  };
+
+  const loadMoreLogs = async () => {
+    if (!hasMoreLogs || loadingMore) return;
+    await fetchLogs(true);
   };
 
   const scrollToBottom = () => {
@@ -50,21 +85,43 @@ export function BotLogs() {
 
     const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
     const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10;
+    const isAtTop = scrollTop <= 10;
 
+    // Controle do auto-scroll
     if (!isAtBottom && autoScroll) {
       setAutoScroll(false);
     } else if (isAtBottom && !autoScroll) {
       setAutoScroll(true);
+    }
+
+    // Lazy loading: carregar mais logs quando chegar no topo
+    if (isAtTop && hasMoreLogs && !loadingMore) {
+      const currentScrollHeight = scrollHeight;
+      loadMoreLogs().then(() => {
+        // Manter posição do scroll após carregar mais logs
+        setTimeout(() => {
+          if (logsContainerRef.current) {
+            const newScrollHeight = logsContainerRef.current.scrollHeight;
+            const scrollDiff = newScrollHeight - currentScrollHeight;
+            logsContainerRef.current.scrollTop = scrollTop + scrollDiff;
+          }
+        }, 100);
+      });
     }
   };
 
   useEffect(() => {
     fetchLogs();
 
-    // Atualizar logs a cada 2 segundos
-    const interval = setInterval(fetchLogs, 2000);
+    // Atualizar apenas os logs mais recentes a cada 5 segundos (para não interferir no lazy loading)
+    const interval = setInterval(() => {
+      // Só faz refresh se estiver no auto-scroll (vendo logs recentes)
+      if (autoScroll) {
+        fetchLogs();
+      }
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [autoScroll]);
 
   useEffect(() => {
     if (autoScroll) {
@@ -169,8 +226,23 @@ export function BotLogs() {
       <div
         ref={logsContainerRef}
         onScroll={handleScroll}
-        className="bg-gray-900 text-gray-100 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm"
+        className="bg-gray-900 text-gray-100 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm relative"
       >
+        {/* Loading indicator no topo */}
+        {loadingMore && (
+          <div className="sticky top-0 bg-gray-800 border border-gray-700 rounded-md p-2 mb-2 flex items-center justify-center z-10">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400 mr-2"></div>
+            <span className="text-xs text-gray-300">Carregando logs anteriores...</span>
+          </div>
+        )}
+
+        {/* Indicador se há mais logs para carregar */}
+        {hasMoreLogs && !loadingMore && filteredLogs.length > 0 && (
+          <div className="sticky top-0 bg-gray-800 border border-gray-600 rounded-md p-1 mb-2 text-center z-10">
+            <span className="text-xs text-gray-400">↑ Role para cima para carregar mais logs ({totalLogs - logs.length} restantes)</span>
+          </div>
+        )}
+
         {filteredLogs.length === 0 ? (
           <div className="text-center text-gray-400 py-8">
             {filter === 'all' ? 'Nenhum log encontrado' : `Nenhum log do tipo ${filter} encontrado`}
@@ -199,12 +271,13 @@ export function BotLogs() {
       </div>
 
       {/* Footer com informações */}
-      <div className="mt-4 text-xs text-gray-500 flex justify-between">
+      <div className="mt-4 text-xs text-gray-500 flex flex-col sm:flex-row justify-between space-y-1 sm:space-y-0">
         <span>
-          Mostrando {filteredLogs.length} {filter === 'all' ? 'logs' : `logs de ${filter}`}
+          Mostrando {filteredLogs.length} de {totalLogs} {filter === 'all' ? 'logs' : `logs de ${filter}`}
+          {hasMoreLogs && ` • ${totalLogs - logs.length} logs anteriores disponíveis`}
         </span>
         <span>
-          Atualizado automaticamente a cada 2 segundos
+          {autoScroll ? 'Atualização automática ativa (5s)' : 'Atualização pausada • Role para baixo para reativar'}
         </span>
       </div>
     </div>
