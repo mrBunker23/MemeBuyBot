@@ -1,103 +1,45 @@
 {
   "workflows": [
     {
-      "name": "Take Profit Básico",
-      "description": "Estratégia simples de take profit",
-      "active": false,
-      "nodes": [
-        {
-          "id": "trigger-1",
-          "type": "trigger-price-change",
-          "name": "Mudança de Preço",
-          "position": {
-            "x": 100,
-            "y": 200
-          },
-          "data": {
-            "changePercentage": 5,
-            "direction": "up",
-            "timeframe": 60
-          }
-        },
-        {
-          "id": "condition-1",
-          "type": "condition-multiple-above",
-          "name": "Múltiplo > 2x",
-          "position": {
-            "x": 400,
-            "y": 200
-          },
-          "data": {
-            "minMultiple": 2,
-            "basePrice": "entry"
-          }
-        },
-        {
-          "id": "action-1",
-          "type": "action-sell-percentage",
-          "name": "Vender 25%",
-          "position": {
-            "x": 700,
-            "y": 150
-          },
-          "data": {
-            "percentage": 25,
-            "priceType": "market",
-            "slippage": 1
-          }
-        },
-        {
-          "id": "log-1",
-          "type": "util-log",
-          "name": "Log Sucesso",
-          "position": {
-            "x": 1000,
-            "y": 150
-          },
-          "data": {
-            "message": "Take profit executado com sucesso - 25% vendido",
-            "level": "success",
-            "includePositionData": true
-          }
-        }
-      ],
+      "name": "Novo Workflow",
+      "description": "Workflow criado via interface",
+      "active": true,
+      "nodes": [],
       "connections": [
         {
+          "id": "edge-trigger-1-condition-1",
           "sourceNodeId": "trigger-1",
+          "sourceOutputId": "default",
           "targetNodeId": "condition-1",
-          "sourceHandle": "output",
-          "targetHandle": "input"
+          "targetInputId": "default"
         },
         {
-          "sourceNodeId": "trigger-1",
-          "targetNodeId": "condition-1",
-          "sourceHandle": "output",
-          "targetHandle": "input"
-        },
-        {
+          "id": "edge-condition-1-action-1",
           "sourceNodeId": "condition-1",
+          "sourceOutputId": "default",
           "targetNodeId": "action-1",
-          "sourceHandle": "output",
-          "targetHandle": "input"
+          "targetInputId": "default"
         },
         {
-          "sourceNodeId": "action-1",
-          "targetNodeId": "log-1",
-          "sourceHandle": "output",
-          "targetHandle": "input"
+          "id": "edge-trigger-1-condition-1",
+          "sourceNodeId": "trigger-1",
+          "sourceOutputId": "default",
+          "targetNodeId": "condition-1",
+          "targetInputId": "default"
         },
         {
+          "id": "edge-condition-1-action-1",
           "sourceNodeId": "condition-1",
-          "targetNodeId": "trigger-1",
-          "sourceHandle": "output",
-          "targetHandle": "input"
+          "sourceOutputId": "default",
+          "targetNodeId": "action-1",
+          "targetInputId": "default"
         }
       ],
-      "executionCount": 0,
-      "id": "workflow_1766709840926_9vntnq7pc",
-      "createdAt": "2025-12-26T00:44:00.926Z",
-      "updatedAt": "2025-12-26T04:01:07.509Z"
+      "id": "workflow_1766799347794_qtg7xitoo",
+      "createdAt": "2025-12-27T01:35:47.795Z",
+      "updatedAt": "2025-12-27T02:49:32.764Z",
+      "executionCount": 0
     }
   ],
-  "lastUpdated": "2025-12-26T04:01:07.510Z"
+  "lastUpdated": "2025-12-27T02:49:32.765Z"
 }
