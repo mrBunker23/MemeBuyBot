@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { api, getErrorMessage } from '../lib/eden-api'
 import { BotStatus } from './BotStatus'
 import { PositionsTable } from './PositionsTable'
@@ -8,7 +9,6 @@ import { BotStats } from './BotStats'
 import { BotLogs } from './BotLogs'
 import { TakeProfitManagerComplete } from './TakeProfitManagerComplete'
 import { BotWallet } from './BotWallet'
-import { WorkflowManager } from './WorkflowManager'
 import { EventsTester } from './EventsTester'
 
 interface BotStatusData {
@@ -50,11 +50,13 @@ interface PositionsData {
 }
 
 export function BotDashboard() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [botStatus, setBotStatus] = useState<BotStatusData | null>(null);
   const [positions, setPositions] = useState<PositionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'wallet' | 'config' | 'takeprofit' | 'workflows' | 'events' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'wallet' | 'config' | 'takeprofit' | 'events' | 'logs'>('overview');
 
   // Função para buscar dados iniciais
   const fetchData = async () => {
@@ -97,14 +99,14 @@ export function BotDashboard() {
   }, []);
 
   const menuItems = [
-    { id: 'overview', icon: '📊', label: 'Visão Geral', color: 'from-blue-500 to-cyan-500' },
-    { id: 'positions', icon: '💼', label: 'Posições', color: 'from-green-500 to-emerald-500' },
-    { id: 'wallet', icon: '💰', label: 'Carteira', color: 'from-yellow-500 to-amber-500' },
-    { id: 'workflows', icon: '🔗', label: 'Workflows', color: 'from-pink-500 to-rose-500' },
-    { id: 'events', icon: '⚡', label: 'Event Tester', color: 'from-orange-500 to-red-500' },
-    { id: 'config', icon: '⚙️', label: 'Configurações', color: 'from-gray-500 to-slate-500' },
-    { id: 'takeprofit', icon: '🎯', label: 'Take Profits', color: 'from-purple-500 to-violet-500' },
-    { id: 'logs', icon: '📋', label: 'Logs', color: 'from-indigo-500 to-blue-500' },
+    { id: 'overview', icon: '📊', label: 'Visão Geral', color: 'from-blue-500 to-cyan-500', type: 'tab' },
+    { id: 'positions', icon: '💼', label: 'Posições', color: 'from-green-500 to-emerald-500', type: 'tab' },
+    { id: 'wallet', icon: '💰', label: 'Carteira', color: 'from-yellow-500 to-amber-500', type: 'tab' },
+    { id: 'workflows', icon: '🔗', label: 'Workflows', color: 'from-pink-500 to-rose-500', type: 'route', route: '/workflows' },
+    { id: 'events', icon: '⚡', label: 'Event Tester', color: 'from-orange-500 to-red-500', type: 'tab' },
+    { id: 'config', icon: '⚙️', label: 'Configurações', color: 'from-gray-500 to-slate-500', type: 'tab' },
+    { id: 'takeprofit', icon: '🎯', label: 'Take Profits', color: 'from-purple-500 to-violet-500', type: 'tab' },
+    { id: 'logs', icon: '📋', label: 'Logs', color: 'from-indigo-500 to-blue-500', type: 'tab' },
   ];
 
   if (loading && !botStatus) {
@@ -163,24 +165,35 @@ export function BotDashboard() {
         {/* Menu Items */}
         <nav className="relative flex-1 p-4">
           <ul className="space-y-2">
-            {menuItems.map((item, index) => (
-              <li key={item.id} style={{ animationDelay: `${index * 100}ms` }} className="animate-fade-in">
-                <button
-                  onClick={() => setActiveTab(item.id as typeof activeTab)}
-                  className={`group w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-300 transform hover:scale-105 relative overflow-hidden ${
-                    activeTab === item.id
-                      ? 'bg-gradient-to-r ' + item.color + ' text-white shadow-lg shadow-blue-500/25'
-                      : 'text-gray-700 hover:bg-white/70 hover:shadow-md'
-                  }`}
+            {menuItems.map((item, index) => {
+              const isActive = item.type === 'route'
+                ? location.pathname === item.route
+                : activeTab === item.id;
+
+              return (
+                <li key={item.id} style={{ animationDelay: `${index * 100}ms` }} className="animate-fade-in">
+                  <button
+                    onClick={() => {
+                      if (item.type === 'route' && item.route) {
+                        navigate(item.route);
+                      } else {
+                        setActiveTab(item.id as typeof activeTab);
+                      }
+                    }}
+                    className={`group w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-300 transform hover:scale-105 relative overflow-hidden ${
+                      isActive
+                        ? 'bg-gradient-to-r ' + item.color + ' text-white shadow-lg shadow-blue-500/25'
+                        : 'text-gray-700 hover:bg-white/70 hover:shadow-md'
+                    }`}
                 >
                   {/* Background gradient for active item */}
-                  {activeTab === item.id && (
+                  {isActive && (
                     <div className="absolute inset-0 bg-gradient-to-r opacity-10 blur-sm"></div>
                   )}
 
                   {/* Icon with background */}
                   <div className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                    activeTab === item.id
+                    isActive
                       ? 'bg-white/20'
                       : 'bg-gray-100 group-hover:bg-white'
                   }`}>
@@ -189,7 +202,7 @@ export function BotDashboard() {
 
                   {/* Label */}
                   <span className={`relative font-semibold transition-all duration-300 ${
-                    activeTab === item.id
+                    isActive
                       ? 'text-white'
                       : 'text-gray-700 group-hover:text-gray-900'
                   }`}>
@@ -197,12 +210,13 @@ export function BotDashboard() {
                   </span>
 
                   {/* Active indicator */}
-                  {activeTab === item.id && (
+                  {isActive && (
                     <div className="absolute right-3 w-2 h-2 bg-white rounded-full animate-pulse"></div>
                   )}
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </nav>
 
@@ -353,9 +367,6 @@ export function BotDashboard() {
           <TakeProfitManagerComplete />
         )}
 
-        {activeTab === 'workflows' && (
-          <WorkflowManager />
-        )}
 
         {activeTab === 'events' && (
           <EventsTester />

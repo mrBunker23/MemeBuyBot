@@ -43,12 +43,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // Configuração explícita do HMR para evitar conflito com WebSocket do backend
+    // Configuração do HMR alinhada com a porta do servidor principal
     hmr: {
       protocol: 'ws',
       host: 'localhost',
-      port: 5173,
-      clientPort: 5173,
+      port: 3001, // Usar porta diferente para HMR
+      clientPort: 3001,
     },
     proxy: {
       '/api': {
