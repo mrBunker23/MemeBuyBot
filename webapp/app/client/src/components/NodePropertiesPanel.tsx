@@ -1,7 +1,7 @@
 // Painel de Propriedades dos Nodes - Configuração dinâmica
 
 import React, { useState, useEffect } from 'react';
-import type { Node, Edge } from '@xyflow/react';
+import { type Node, type Edge } from '@xyflow/react';
 import { X, Settings, Save, Trash2, Play, Info, AlertCircle, Variable, Database } from 'lucide-react';
 import { VariableSelector } from './VariableSelector';
 import { getAvailableVariables, NODE_VARIABLE_DEFINITIONS } from '../types/workflow-variables';

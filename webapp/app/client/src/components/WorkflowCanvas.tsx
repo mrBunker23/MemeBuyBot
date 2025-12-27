@@ -26,6 +26,7 @@ import { CustomUtilityNode } from './workflow-nodes/CustomUtilityNode';
 import { NodePalette } from './NodePalette';
 import { NodePropertiesPanel } from './NodePropertiesPanel';
 import { WorkflowToolbar } from './WorkflowToolbar';
+import { generateAllTriggers } from '../types/workflow-triggers';
 
 // Tipos de nodes customizados
 const nodeTypes: NodeTypes = {
@@ -41,6 +42,7 @@ interface WorkflowCanvasProps {
   initialEdges?: Edge[];
   onSave?: (nodes: Node[], edges: Edge[]) => void;
   onTest?: (nodes: Node[], edges: Edge[]) => void;
+  onWorkflowChange?: (nodes: Node[], edges: Edge[]) => void;
   readOnly?: boolean;
 }
 
@@ -50,6 +52,7 @@ export function WorkflowCanvas({
   initialEdges = [],
   onSave,
   onTest,
+  onWorkflowChange,
   readOnly = false
 }: WorkflowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -73,9 +76,27 @@ export function WorkflowCanvas({
     [setEdges]
   );
 
+  // Cache dos triggers disponíveis
+  const availableTriggers = useMemo(() => generateAllTriggers(), []);
+
+  // Notificar parent sobre mudanças no workflow
+  useEffect(() => {
+    if (onWorkflowChange) {
+      onWorkflowChange(nodes, edges);
+    }
+  }, [nodes, edges, onWorkflowChange]);
+
   // Função para adicionar novo node do palette
   const onNodeAdd = useCallback((nodeType: string, position: { x: number; y: number }) => {
     const nodeId = `${nodeType}-${Date.now()}`;
+
+    // 🚀 SUPORTE A TRIGGERS DINÂMICOS - Detectar se é um trigger específico
+    const isDynamicTrigger = nodeType.includes(':'); // Ex: 'trading:buy_confirmed'
+    let triggerInfo = null;
+
+    if (isDynamicTrigger) {
+      triggerInfo = availableTriggers.find(t => t.id === nodeType);
+    }
 
     const nodeDefaults: Record<string, Partial<Node>> = {
       trigger: {
@@ -165,6 +186,47 @@ export function WorkflowCanvas({
       },
     };
 
+    // 🚀 CRIAR NODE DE TRIGGER DINÂMICO se for um evento específico
+    if (isDynamicTrigger && triggerInfo) {
+      const dynamicTriggerNode: Partial<Node> = {
+        type: 'triggerNode',
+        data: {
+          label: `${triggerInfo.icon} ${triggerInfo.name}`,
+          nodeType: 'trigger',
+          triggerEventName: triggerInfo.eventName,
+          triggerCategory: triggerInfo.category,
+          config: {
+            ...triggerInfo.defaultConfig,
+            eventType: triggerInfo.eventName
+          }
+        },
+        style: {
+          background: `linear-gradient(135deg, ${triggerInfo.color} 0%, ${triggerInfo.color}dd 100%)`,
+          border: `2px solid ${triggerInfo.color}`,
+          borderRadius: '12px',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: '600',
+          width: 220,
+          height: 85,
+        },
+      };
+
+      const newNode: Node = {
+        id: nodeId,
+        position,
+        ...dynamicTriggerNode,
+      };
+
+      setNodes((nodes) => [...nodes, newNode]);
+
+      // Auto-abrir painel de propriedades
+      setSelectedNode(newNode);
+      setIsPropertiesPanelOpen(true);
+
+      return;
+    }
+
     const newNode: Node = {
       id: nodeId,
       position,
@@ -178,7 +240,7 @@ export function WorkflowCanvas({
       setSelectedNode(newNode);
       setIsPropertiesPanelOpen(true);
     }, 100);
-  }, [setNodes]);
+  }, [setNodes, availableTriggers]);
 
   // Função para selecionar node
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
@@ -186,6 +248,19 @@ export function WorkflowCanvas({
     setSelectedNode(node);
     setIsPropertiesPanelOpen(true);
   }, [readOnly]);
+
+  // Debug de movimentação de nodes
+  const onNodeDragStart = useCallback((event: React.MouseEvent, node: Node) => {
+    console.log('🎯 Iniciando drag do node:', node.id);
+  }, []);
+
+  const onNodeDrag = useCallback((event: React.MouseEvent, node: Node) => {
+    console.log('🔄 Arrastando node:', node.id, 'para posição:', node.position);
+  }, []);
+
+  const onNodeDragStop = useCallback((event: React.MouseEvent, node: Node) => {
+    console.log('✅ Parou de arrastar node:', node.id, 'posição final:', node.position);
+  }, []);
 
   // Função para atualizar propriedades do node
   const onNodeUpdate = useCallback((nodeId: string, newData: any) => {
@@ -288,6 +363,9 @@ export function WorkflowCanvas({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
             onDragOver={onDragOver}
             onDrop={onDrop}
             nodeTypes={nodeTypes}
@@ -304,11 +382,20 @@ export function WorkflowCanvas({
             }}
             deleteKeyCode={readOnly ? null : ['Delete', 'Backspace']}
             multiSelectionKeyCode={readOnly ? null : ['Shift']}
-            selectionOnDrag={!readOnly}
-            panOnDrag={true}
+            selectionOnDrag={false}
+            panOnDrag={[1, 2]}
+            panOnScroll={false}
             zoomOnScroll={true}
             zoomOnPinch={true}
+            zoomOnDoubleClick={false}
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            elementsSelectable={!readOnly}
+            selectNodesOnDrag={false}
+            snapToGrid={false}
+            onlyRenderVisibleElements={false}
             className="workflow-canvas"
+            style={{ background: '#fafafa' }}
           >
             {/* Background com padrão de grade */}
             <Background

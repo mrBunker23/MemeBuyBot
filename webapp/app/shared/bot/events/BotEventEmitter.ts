@@ -87,6 +87,22 @@ export interface BotEventMap {
   'monitor:stopped': { mint: string; ticker: string; reason: string };
   'monitor:price_check': { mint: string; currentPrice: number; multiple: number };
   'monitor:price_stale': { mint: string; lastUpdate: string; staleSince: number };
+  'monitor:position_registered': { mint: string; ticker: string; registeredAt: number };
+  'monitor:position_unregistered': { mint: string; ticker: string; reason: string };
+
+  // === PRICE MONITOR EVENTS ===
+  'price:updated': { mint: string; ticker?: string; price: number; previousPrice?: number; timestamp: number };
+  'price:stale': { mint: string; ticker?: string; lastSeen: number; attempts: number };
+  'price:batch_check_started': { tokenCount: number; interval: number; timestamp: number };
+  'price:batch_check_completed': {
+    tokenCount: number;
+    successfulUpdates: number;
+    staleTokens: number;
+    executionTime: number;
+    errors?: string[];
+  };
+  'price:monitor_started': { interval: number; tokenCount: number };
+  'price:monitor_stopped': { reason: string; tokensMonitored: number };
 
   // === WEBSOCKET EVENTS ===
   'websocket:client_connected': { clientId: string; ip: string };
@@ -107,10 +123,8 @@ export interface BotEventMap {
 
 // Event Emitter tipado com TypeScript
 export class BotEventEmitter extends EventEmitter {
-  // Emit com tipagem segura
-  emit<K extends keyof BotEventMap>(event: K, data: BotEventMap[K]): boolean {
-    return super.emit(event, data);
-  }
+  // Metrics helper - conta eventos emitidos por namespace
+  private eventCounts: Record<string, number> = {};
 
   // On com tipagem segura
   on<K extends keyof BotEventMap>(event: K, listener: (data: BotEventMap[K]) => void): this {
@@ -145,9 +159,7 @@ export class BotEventEmitter extends EventEmitter {
     return debug;
   }
 
-  // Metrics helper - conta eventos emitidos por namespace
-  private eventCounts: Record<string, number> = {};
-
+  // Emit com tipagem segura e contador de eventos
   emit<K extends keyof BotEventMap>(event: K, data: BotEventMap[K]): boolean {
     // Incrementar contador
     const namespace = String(event).split(':')[0];

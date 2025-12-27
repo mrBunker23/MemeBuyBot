@@ -3,6 +3,7 @@ import { tradingService } from './trading.service';
 import { stateService } from './state.service';
 import { solanaService } from './solana.service';
 import { jupiterService } from './jupiter.service';
+import { priceMonitorService } from './price-monitor.service';
 import { botWebSocketService } from './websocket.service';
 import { logger } from '../utils/logger';
 import { config } from '../config';
@@ -342,6 +343,10 @@ class BotManagerService {
       // Configurar trading service
       tradingService.setRunning(true);
 
+      // 🚀 INICIALIZAR PRICE MONITOR SERVICE (EVENT-DRIVEN)
+      logger.info('📊 Iniciando sistema de monitoramento centralizado...');
+      priceMonitorService.startMonitoring();
+
       // Retomar monitoramento de posições ativas
       const activePositions = stateService.getActivePositions();
       for (const mint of Object.keys(activePositions)) {
@@ -410,6 +415,10 @@ class BotManagerService {
         clearInterval(this.pausedCheckInterval);
         this.pausedCheckInterval = null;
       }
+
+      // 🚀 PARAR PRICE MONITOR SERVICE (EVENT-DRIVEN)
+      logger.info('📊 Parando sistema de monitoramento centralizado...');
+      priceMonitorService.stopMonitoring('Bot stopped');
 
       // Parar monitoramento de posições
       tradingService.stopAllMonitoring();

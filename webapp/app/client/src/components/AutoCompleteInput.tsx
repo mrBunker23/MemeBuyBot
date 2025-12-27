@@ -1,7 +1,7 @@
 // Input com Auto Complete para Variáveis - Estilo n8n
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { Node, Edge } from '@xyflow/react';
+import { type Node, type Edge } from '@xyflow/react';
 import {
   WorkflowDataAccessor,
   createMockExecutionState,

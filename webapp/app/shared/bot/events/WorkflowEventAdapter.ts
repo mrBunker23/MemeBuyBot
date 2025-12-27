@@ -1,5 +1,5 @@
 // Adapter que conecta eventos reais do bot aos workflows visuais
-import { botEventEmitter, createEventListener, type BotEvent, type BotEventData } from './BotEventEmitter';
+import { botEventEmitter, createEventListener, type BotEvent, type BotEventData, type BotEventMap } from './BotEventEmitter';
 import { logger } from '../utils/logger';
 
 // Interface para executar workflows (será implementada quando workflows estiverem rodando de verdade)
@@ -9,34 +9,148 @@ interface WorkflowExecutor {
   getActiveWorkflows(): string[];
 }
 
-// Mapeamento de eventos do bot para triggers de workflows
-const EVENT_TO_TRIGGER_MAPPING = {
-  // Price events
-  'jupiter:price_fetched': 'price_change',
-  'monitor:price_check': 'price_change',
+// 🚀 AUTO-DISCOVERY: Todos os eventos do BotEventEmitter viram triggers automaticamente!
 
-  // Trading events
-  'trading:buy_initiated': 'buy_initiated',
-  'trading:buy_confirmed': 'buy_confirmed',
-  'trading:sell_confirmed': 'sell_confirmed',
-  'takeprofit:triggered': 'take_profit',
+// Função para descobrir automaticamente todos os eventos disponíveis
+function getAllAvailableEvents(): BotEvent[] {
+  // Estes são todos os eventos tipados do BotEventMap
+  return [
+    // BOT LIFECYCLE
+    'bot:started',
+    'bot:stopped',
+    'bot:error',
+    'bot:config_updated',
 
-  // Position events
-  'position:created': 'position_opened',
-  'position:updated': 'position_updated',
-  'position:closed': 'position_closed',
+    // SCRAPER EVENTS
+    'scraper:initialized',
+    'scraper:token_detected',
+    'scraper:token_filtered',
+    'scraper:error',
+    'scraper:cookies_expired',
+    'scraper:rate_limited',
 
-  // Volume events (quando implementado)
-  'jupiter:volume_fetched': 'volume_change',
+    // TRADING EVENTS
+    'trading:buy_initiated',
+    'trading:buy_confirmed',
+    'trading:buy_failed',
+    'trading:sell_initiated',
+    'trading:sell_confirmed',
+    'trading:sell_failed',
 
-  // Time events (será implementado no futuro)
-  'system:time_interval': 'time_trigger',
+    // POSITION EVENTS
+    'position:created',
+    'position:updated',
+    'position:paused',
+    'position:resumed',
+    'position:closed',
 
-  // Bot lifecycle
-  'bot:started': 'bot_started',
-  'bot:stopped': 'bot_stopped',
-  'bot:error': 'bot_error'
-} as const;
+    // TAKE PROFIT EVENTS
+    'takeprofit:triggered',
+    'takeprofit:configured',
+    'takeprofit:disabled',
+
+    // JUPITER EVENTS
+    'jupiter:api_validated',
+    'jupiter:api_failed',
+    'jupiter:price_fetched',
+    'jupiter:price_failed',
+    'jupiter:trade_executed',
+    'jupiter:trade_failed',
+    'jupiter:rate_limited',
+
+    // SOLANA EVENTS
+    'solana:wallet_loaded',
+    'solana:balance_updated',
+    'solana:transaction_signed',
+    'solana:transaction_confirmed',
+    'solana:transaction_failed',
+    'solana:rpc_error',
+    'solana:rpc_switched',
+
+    // STATE EVENTS
+    'state:saved',
+    'state:loaded',
+    'state:error',
+    'state:position_persisted',
+    'state:price_history_updated',
+
+    // MONITORING EVENTS
+    'monitor:started',
+    'monitor:stopped',
+    'monitor:price_check',
+    'monitor:price_stale',
+    'monitor:position_registered',
+    'monitor:position_unregistered',
+
+    // PRICE MONITOR EVENTS (NEW!)
+    'price:updated',
+    'price:stale',
+    'price:batch_check_started',
+    'price:batch_check_completed',
+    'price:monitor_started',
+    'price:monitor_stopped',
+
+    // WEBSOCKET EVENTS
+    'websocket:client_connected',
+    'websocket:client_disconnected',
+    'websocket:broadcast_sent',
+    'websocket:error',
+
+    // LOGGER EVENTS
+    'logger:log_created',
+    'logger:buffer_full',
+
+    // SYSTEM EVENTS
+    'system:memory_warning',
+    'system:performance_slow',
+    'system:file_error',
+    'system:network_error'
+  ] as BotEvent[];
+}
+
+// Converter nome do evento para nome do trigger (formato amigável)
+function eventToTriggerName(eventName: BotEvent): string {
+  // Remove namespace e converte para formato amigável
+  // Ex: 'trading:buy_confirmed' -> 'Buy Confirmed'
+  return eventName
+    .split(':')[1] // Remove namespace (trading:, bot:, etc)
+    .split('_') // Separa por underscore
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize
+    .join(' '); // Junta com espaços
+}
+
+// Mapear categorias para organizar triggers
+function getEventCategory(eventName: BotEvent): string {
+  const namespace = eventName.split(':')[0];
+  const categoryMap: Record<string, string> = {
+    'bot': '🤖 Bot Lifecycle',
+    'trading': '💰 Trading',
+    'position': '📊 Positions',
+    'takeprofit': '🎯 Take Profits',
+    'price': '📈 Price Monitoring',
+    'monitor': '🔍 Monitoring',
+    'scraper': '🕷️ Scraper',
+    'jupiter': '🪐 Jupiter DEX',
+    'solana': '🌐 Solana',
+    'state': '💾 State Management',
+    'websocket': '🔌 WebSocket',
+    'logger': '📝 Logging',
+    'system': '⚙️ System'
+  };
+  return categoryMap[namespace] || '❓ Other';
+}
+
+// Criar informações do trigger automaticamente
+function createTriggerInfo(eventName: BotEvent) {
+  return {
+    id: eventName,
+    name: eventToTriggerName(eventName),
+    category: getEventCategory(eventName),
+    description: `Triggered when ${eventToTriggerName(eventName).toLowerCase()} event occurs`,
+    eventName: eventName,
+    namespace: eventName.split(':')[0]
+  };
+}
 
 // Transformação de dados de eventos para formato de workflow
 class WorkflowEventAdapter {
@@ -61,125 +175,32 @@ class WorkflowEventAdapter {
   }
 
   private setupEventListeners() {
-    // === PRICE CHANGE EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('monitor:price_check', (data) => {
-        this.triggerWorkflows('price_change', {
-          token: data.mint,
-          currentPrice: data.currentPrice,
-          multiple: data.multiple,
-          timestamp: new Date().toISOString(),
-          triggerType: 'price_change'
-        });
-      })
-    );
+    // 🚀 AUTO-SETUP: Criar listeners automaticamente para TODOS os eventos!
+    const allEvents = getAllAvailableEvents();
 
-    // === TRADING EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('trading:buy_confirmed', (data) => {
-        this.triggerWorkflows('buy_confirmed', {
-          token: data.mint,
-          ticker: data.ticker,
-          signature: data.signature,
-          actualPrice: data.actualPrice,
-          timestamp: new Date().toISOString(),
-          triggerType: 'buy_confirmed'
-        });
-      })
-    );
+    for (const eventName of allEvents) {
+      const triggerInfo = createTriggerInfo(eventName);
 
-    this.eventSubscriptions.push(
-      createEventListener('trading:sell_confirmed', (data) => {
-        this.triggerWorkflows('sell_confirmed', {
-          token: data.mint,
-          ticker: data.ticker,
-          signature: data.signature,
-          profit: data.profit,
-          timestamp: new Date().toISOString(),
-          triggerType: 'sell_confirmed'
-        });
-      })
-    );
+      // Criar listener genérico para cada evento
+      this.eventSubscriptions.push(
+        createEventListener(eventName, (data: BotEventData<typeof eventName>) => {
+          // Transformar dados do evento para formato padrão do workflow
+          const workflowData = {
+            ...data, // Todos os dados originais do evento
+            timestamp: new Date().toISOString(),
+            eventName: eventName,
+            triggerType: triggerInfo.name.toLowerCase().replace(/\s+/g, '_'),
+            triggerCategory: triggerInfo.category,
+            triggerDescription: triggerInfo.description
+          };
 
-    // === TAKE PROFIT EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('takeprofit:triggered', (data) => {
-        this.triggerWorkflows('take_profit', {
-          token: data.mint,
-          ticker: data.ticker,
-          stage: data.stage,
-          multiple: data.multiple,
-          percentage: data.percentage,
-          timestamp: new Date().toISOString(),
-          triggerType: 'take_profit'
-        });
-      })
-    );
+          this.triggerWorkflows(triggerInfo.id, workflowData);
+        })
+      );
+    }
 
-    // === POSITION EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('position:created', (data) => {
-        this.triggerWorkflows('position_opened', {
-          token: data.mint,
-          ticker: data.ticker,
-          entryPrice: data.entryPrice,
-          amount: data.amount,
-          timestamp: new Date().toISOString(),
-          triggerType: 'position_opened'
-        });
-      })
-    );
-
-    this.eventSubscriptions.push(
-      createEventListener('position:updated', (data) => {
-        this.triggerWorkflows('position_updated', {
-          token: data.mint,
-          ticker: data.ticker,
-          currentPrice: data.currentPrice,
-          multiple: data.multiple,
-          percentChange: data.percentChange,
-          highestMultiple: data.highestMultiple,
-          timestamp: new Date().toISOString(),
-          triggerType: 'position_updated'
-        });
-      })
-    );
-
-    // === BOT LIFECYCLE EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('bot:started', (data) => {
-        this.triggerWorkflows('bot_started', {
-          timestamp: data.timestamp,
-          config: data.config,
-          triggerType: 'bot_started'
-        });
-      })
-    );
-
-    this.eventSubscriptions.push(
-      createEventListener('bot:stopped', (data) => {
-        this.triggerWorkflows('bot_stopped', {
-          timestamp: data.timestamp,
-          reason: data.reason,
-          triggerType: 'bot_stopped'
-        });
-      })
-    );
-
-    // === SCRAPER EVENTS ===
-    this.eventSubscriptions.push(
-      createEventListener('scraper:token_detected', (data) => {
-        this.triggerWorkflows('token_detected', {
-          token: data.token,
-          score: data.score,
-          url: data.url,
-          timestamp: new Date().toISOString(),
-          triggerType: 'token_detected'
-        });
-      })
-    );
-
-    logger.info(`📡 ${this.eventSubscriptions.length} event listeners configurados para workflows`);
+    logger.info(`📡 ${this.eventSubscriptions.length} event listeners configurados automaticamente para workflows`);
+    logger.info(`🎯 Triggers disponíveis: ${allEvents.length} eventos de ${new Set(allEvents.map(e => e.split(':')[0])).size} categorias`);
   }
 
   private async triggerWorkflows(triggerType: string, workflowData: any) {
@@ -209,13 +230,40 @@ class WorkflowEventAdapter {
 
   // Estatísticas e debug
   getStats() {
+    const allEvents = getAllAvailableEvents();
+    const triggersByCategory = allEvents.reduce((acc, event) => {
+      const category = getEventCategory(event);
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(createTriggerInfo(event));
+      return acc;
+    }, {} as Record<string, ReturnType<typeof createTriggerInfo>[]>);
+
     return {
       isEnabled: this.isEnabled,
       hasExecutor: !!this.workflowExecutor,
       subscriptionCount: this.eventSubscriptions.length,
-      supportedTriggers: Object.keys(EVENT_TO_TRIGGER_MAPPING),
+      totalEvents: allEvents.length,
+      eventCategories: Object.keys(triggersByCategory).length,
+      triggersByCategory,
+      supportedTriggers: allEvents, // Todos os eventos são triggers agora!
       activeWorkflows: this.workflowExecutor?.getActiveWorkflows() || []
     };
+  }
+
+  // Obter todos os triggers disponíveis (para uso na interface)
+  getAllAvailableTriggers() {
+    return getAllAvailableEvents().map(eventName => createTriggerInfo(eventName));
+  }
+
+  // Obter triggers por categoria (para organizar na UI)
+  getTriggersByCategory() {
+    const allEvents = getAllAvailableEvents();
+    return allEvents.reduce((acc, event) => {
+      const category = getEventCategory(event);
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(createTriggerInfo(event));
+      return acc;
+    }, {} as Record<string, ReturnType<typeof createTriggerInfo>[]>);
   }
 
   // Cleanup
@@ -231,6 +279,13 @@ class WorkflowEventAdapter {
 // Instância singleton do adapter
 export const workflowEventAdapter = new WorkflowEventAdapter();
 
-// Export types para uso em outros arquivos
+// 🚀 EXPORTS para uso em outros arquivos
 export type { WorkflowExecutor };
-export { EVENT_TO_TRIGGER_MAPPING };
+
+// Funções utilitárias para o sistema de workflows
+export {
+  getAllAvailableEvents,
+  eventToTriggerName,
+  getEventCategory,
+  createTriggerInfo
+};

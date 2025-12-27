@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, Variable, Eye, Code, Database, Play, ChevronRight, Type, Zap } from 'lucide-react';
-import type { Node, Edge } from '@xyflow/react';
+import { type Node, type Edge } from '@xyflow/react';
 import {
   WorkflowDataAccessor,
   createMockExecutionState,

@@ -1,7 +1,8 @@
 // Paleta de Nodes para Drag & Drop - Estilo n8n
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Play, GitBranch, Zap, Settings, ChevronDown, ChevronRight, Search, Info } from 'lucide-react';
+import { getTriggersByCategory } from '../types/workflow-triggers';
 
 interface NodePaletteProps {
   onNodeAdd: (nodeType: string, position: { x: number; y: number }) => void;
@@ -146,12 +147,41 @@ const nodeTemplates: NodeTemplate[] = [
 export function NodePalette({ onNodeAdd, stats }: NodePaletteProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['Market', 'Trading', 'Math', 'Debug'])
+    new Set(['Market', 'Trading', 'Math', 'Debug', '💰 Trading', '📊 Positions', '🎯 Take Profits'])
   );
   const [selectedType, setSelectedType] = useState<string>('all');
 
+  // 🚀 TRIGGERS DINÂMICOS - Integrar todos os eventos como triggers
+  const dynamicTriggers = useMemo(() => getTriggersByCategory(), []);
+
+  // Converter triggers dinâmicos para formato NodeTemplate
+  const dynamicNodeTemplates = useMemo(() => {
+    const templates: NodeTemplate[] = [];
+
+    Object.entries(dynamicTriggers).forEach(([category, triggers]) => {
+      triggers.forEach(trigger => {
+        templates.push({
+          id: trigger.id, // Ex: 'trading:buy_confirmed'
+          type: 'trigger',
+          name: trigger.name,
+          description: trigger.description,
+          icon: <span style={{ fontSize: '14px' }}>{trigger.icon}</span>,
+          color: 'from-green-500 to-green-600',
+          category: category
+        });
+      });
+    });
+
+    return templates;
+  }, [dynamicTriggers]);
+
+  // Combinar templates estáticos com dinâmicos
+  const allNodeTemplates = useMemo(() => {
+    return [...nodeTemplates, ...dynamicNodeTemplates];
+  }, [dynamicNodeTemplates]);
+
   // Filtrar nodes por busca e tipo
-  const filteredNodes = nodeTemplates.filter(node => {
+  const filteredNodes = allNodeTemplates.filter(node => {
     const matchesSearch = node.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          node.description.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = selectedType === 'all' || node.type === selectedType;

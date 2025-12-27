@@ -3,16 +3,220 @@ import { WebConfigManager } from '../config/web-config';
 import { jupiterService } from './jupiter.service';
 import { solanaService } from './solana.service';
 import { stateService } from './state.service';
+import { priceMonitorService } from './price-monitor.service';
 import { logger } from '../utils/logger';
-import { botEventEmitter } from '../events/BotEventEmitter';
+import { botEventEmitter, createEventListener } from '../events/BotEventEmitter';
 
 class TradingService {
   private isRunning: boolean = false;
-  private monitoringIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private monitoringIntervals: Map<string, NodeJS.Timeout> = new Map(); // TODO: Remover após refatoração completa
 
   // Event handlers para WebSocket
   private onPositionUpdateCallbacks: Array<(mint: string, position: any) => void> = [];
   private onTransactionCallbacks: Array<(transaction: any) => void> = [];
+
+  constructor() {
+    this.setupPriceEventListeners();
+  }
+
+  /**
+   * Configurar listeners para eventos de preço do PriceMonitorService
+   */
+  private setupPriceEventListeners(): void {
+    // Escutar atualizações de preço
+    createEventListener('price:updated', (data) => {
+      this.handlePriceUpdate(data.mint, data.price, data.previousPrice);
+    });
+
+    // Escutar preços stale (sem atualizações)
+    createEventListener('price:stale', (data) => {
+      this.handleStalePrice(data.mint, data.attempts);
+    });
+
+    logger.debug('📊 TradingService: Event listeners de preço configurados');
+  }
+
+  /**
+   * Verificar e executar take profits para uma posição
+   */
+  private async checkTakeProfits(
+    mint: string,
+    position: any,
+    multiple: number,
+    stages: any[],
+    currentBalance: any
+  ): Promise<void> {
+    const ticker = position.ticker || mint.substring(0, 6);
+
+    // Verificar TPs dinâmicos
+    for (const stage of stages) {
+      if (position.sold?.[stage.id]) continue;
+
+      if (multiple >= stage.multiple) {
+        // Verificar saldo atualizado antes de vender (pode ter mudado desde o último check)
+        const freshBalance = await solanaService.getTokenBalance(mint);
+
+        if (freshBalance.amount <= 0n) {
+          logger.warn(`Sem saldo para ${stage.name} - ${ticker}`);
+          stateService.markStageSold(mint, stage.id);
+          continue;
+        }
+
+        // Calcular quanto vender baseado no percentual
+        let sellAmount: bigint;
+        if (stage.sellPercent >= 100) {
+          sellAmount = freshBalance.amount;
+        } else {
+          sellAmount = (freshBalance.amount * BigInt(stage.sellPercent)) / 100n;
+          if (sellAmount <= 0n) sellAmount = freshBalance.amount;
+        }
+
+        // Emitir evento de take profit atingido
+        botEventEmitter.emit('takeprofit:triggered', {
+          mint,
+          ticker,
+          stage: stage.name,
+          multiple,
+          percentage: stage.sellPercent
+        });
+
+        logger.success(
+          `${stage.name.toUpperCase()} atingido! ${multiple.toFixed(2)}x → Vendendo ${stage.sellPercent}%`
+        );
+
+        const success = await this.sellToken(mint, sellAmount, ticker, stage.id);
+        if (success) {
+          stateService.markStageSold(mint, stage.id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Processar atualização de preço recebida via evento
+   */
+  private async handlePriceUpdate(mint: string, price: number, previousPrice?: number): Promise<void> {
+    const pos = stateService.getPosition(mint);
+    if (!pos || !pos.entryUsd) return;
+
+    const ticker = pos.ticker || mint.substring(0, 6);
+
+    try {
+      // Calcular múltiplo e variação
+      const multiple = price / pos.entryUsd;
+      const percentChange = ((multiple - 1) * 100).toFixed(2);
+
+      // Atualizar histórico de preços
+      stateService.updatePrice(mint, price);
+
+      // Obter posição atualizada após update
+      const updatedPos = stateService.getPosition(mint);
+      if (!updatedPos) return;
+
+      // Verificar saldo atual
+      const balance = await solanaService.getTokenBalance(mint);
+
+      // Emitir evento de atualização de posição (mantém compatibilidade)
+      const positionData = {
+        ticker: updatedPos.ticker || mint.substring(0, 6),
+        currentPrice: price,
+        multiple,
+        percentChange: Number(percentChange),
+        highestMultiple: updatedPos.highestMultiple || multiple
+      };
+
+      botEventEmitter.emit('position:updated', {
+        mint,
+        ...positionData
+      });
+
+      // Manter compatibilidade com callback antigo
+      this.emitPositionUpdate(mint, {
+        ...updatedPos,
+        currentMultiple: multiple,
+        percentChange: Number(percentChange),
+        currentBalance: balance.amount,
+        balanceFormatted: balance.amount > 0n
+          ? (Number(balance.amount) / Math.pow(10, balance.decimals)).toFixed(2)
+          : '0'
+      });
+
+      // Verificar se precisa parar monitoramento
+      const webConfigManager = WebConfigManager.getInstance();
+      const enabledStages = webConfigManager.getStages().filter(s => s.enabled);
+      const allTPsCompleted = enabledStages.every(stage => updatedPos.sold?.[stage.id]);
+
+      // Se todos os TPs foram executados e saldo é zero, finalizar monitoramento
+      if (allTPsCompleted && balance.amount === 0n) {
+        this.stopMonitoring(mint);
+        logger.info(`${ticker} - Monitoramento finalizado (todos TPs completos)`);
+        return;
+      }
+
+      // Se saldo é zero mas nem todos os TPs foram executados, pausar posição
+      if (balance.amount === 0n && !allTPsCompleted) {
+        this.stopMonitoring(mint);
+        stateService.pausePosition(mint);
+        logger.warn(`${ticker} - Posição pausada (saldo zero)`);
+        return;
+      }
+
+      // Encontrar próximo TP
+      const stages = enabledStages;
+      const nextTp = stages.find(s => !updatedPos.sold?.[s.id]);
+      const nextTpText = nextTp
+        ? `→ ${nextTp.name.toUpperCase()} (${nextTp.multiple}x)`
+        : 'Concluído';
+
+      logger.position(
+        ticker,
+        multiple,
+        (percentChange >= '0' ? '+' : '') + percentChange,
+        nextTpText,
+        updatedPos.highestMultiple || multiple
+      );
+
+      // Verificar TPs dinâmicos
+      await this.checkTakeProfits(mint, updatedPos, multiple, stages, balance);
+
+    } catch (error) {
+      logger.error(`❌ Erro processando atualização de preço para ${ticker}:`, error);
+
+      // Emitir evento de erro
+      botEventEmitter.emit('system:error', {
+        error: (error as Error).message,
+        source: `TradingService.handlePriceUpdate.${ticker}`,
+        details: error
+      });
+    }
+  }
+
+  /**
+   * Processar preço stale (sem atualizações) recebido via evento
+   */
+  private handleStalePrice(mint: string, attempts: number): void {
+    const pos = stateService.getPosition(mint);
+    if (!pos) return;
+
+    const ticker = pos.ticker || mint.substring(0, 6);
+
+    // Log baseado no número de tentativas
+    if (attempts <= 3) {
+      logger.debug(`⏳ ${ticker} - Preço não disponível (tentativa ${attempts})`);
+    } else if (attempts <= 10) {
+      logger.warn(`⚠️ ${ticker} - Múltiplas falhas obtendo preço (${attempts} tentativas)`);
+    } else {
+      logger.error(`❌ ${ticker} - Preço não disponível há muito tempo (${attempts} tentativas)`);
+      // Considerar pausar a posição após muitas falhas?
+    }
+
+    // Emitir evento original para manter compatibilidade
+    botEventEmitter.emit('monitor:price_stale', {
+      mint,
+      lastUpdate: pos.priceHistory?.slice(-1)[0]?.timestamp || 'never',
+      staleSince: Date.now()
+    });
+  }
 
   isRunningBot(): boolean {
     return this.isRunning;
@@ -183,25 +387,23 @@ class TradingService {
     return null;
   }
 
+  /**
+   * Registrar posição para monitoramento via PriceMonitorService (EVENT-DRIVEN)
+   */
   async monitorPosition(mint: string): Promise<void> {
     const pos = stateService.getPosition(mint);
     if (!pos) return;
 
     const ticker = pos.ticker || mint.substring(0, 6);
 
-    // Emitir evento de monitoramento iniciado
-    botEventEmitter.emit('monitor:started', {
-      mint,
-      ticker,
-      interval: jupiterService.getOptimalPriceCheckInterval()
-    });
-
-    // Aguardar preço de entrada se não existir
+    // Verificar se precisa obter preço de entrada
     if (!pos.entryUsd) {
       logger.info(`${ticker} aguardando preço de entrada...`);
+
+      // Tentar obter preço de entrada (máximo 20 tentativas)
       for (let i = 0; i < 20; i++) {
         const price = await jupiterService.getUsdPrice(mint);
-        if (price) {
+        if (price && price > 0) {
           stateService.updatePositionEntry(mint, price);
 
           // Emitir evento de posição criada com preço de entrada
@@ -218,200 +420,92 @@ class TradingService {
         await this.sleep(2000);
       }
 
-      // Se ainda não tem preço, avisar
+      // Verificar se conseguiu obter preço de entrada
       const updatedPos = stateService.getPosition(mint);
       if (!updatedPos?.entryUsd) {
-        logger.warn(`${ticker} não conseguiu obter preço de entrada`);
+        logger.error(`❌ ${ticker} falhou ao obter preço de entrada após 20 tentativas`);
+
+        // Emitir evento de erro crítico
+        botEventEmitter.emit('system:error', {
+          error: 'Failed to obtain entry price after 20 attempts',
+          source: `TradingService.monitorPosition.${ticker}`,
+          details: { mint, attempts: 20 }
+        });
         return;
       }
     } else {
-      logger.info(`${ticker} monitorando - entrada: $${pos.entryUsd.toFixed(6)}`);
+      logger.info(`📊 ${ticker} monitorando - entrada: $${pos.entryUsd.toFixed(6)}`);
     }
 
-    // Criar interval para monitoramento contínuo
-    const intervalId = setInterval(async () => {
-      try {
-        await this.checkPosition(mint);
-      } catch (error) {
-        // Emitir evento de erro no monitoramento
-        botEventEmitter.emit('system:error', {
-          error: (error as Error).message,
-          source: `TradingService.monitorPosition.${ticker}`,
-          details: error
-        });
+    // 🚀 USAR PRICE MONITOR SERVICE AO INVÉS DE setInterval
+    // Registrar token para monitoramento centralizado com alta prioridade
+    priceMonitorService.registerToken(mint, ticker, 'high');
 
-        logger.error(`Erro no monitoramento de ${ticker}:`, error);
-      }
-    }, jupiterService.getOptimalPriceCheckInterval() * 1000);
-
-    this.monitoringIntervals.set(mint, intervalId);
-
-    // Primeira verificação imediata
-    await this.checkPosition(mint);
-  }
-
-  private async checkPosition(mint: string): Promise<void> {
-    const pos = stateService.getPosition(mint);
-    if (!pos || !pos.entryUsd) return;
-
-    // Verificar se TP4 foi executado ou se saldo é zero
-    const balance = await solanaService.getTokenBalance(mint);
-
-    // Verificar se todos os TPs foram executados
-    const webConfigManager = WebConfigManager.getInstance();
-    const enabledStages = webConfigManager.getStages().filter(s => s.enabled);
-    const allTPsCompleted = enabledStages.every(stage => pos.sold?.[stage.id]);
-
-    // Se todos os TPs foram executados e saldo é zero, finalizar monitoramento
-    if (allTPsCompleted && balance.amount === 0n) {
-      this.stopMonitoring(mint);
-      logger.info(`${pos.ticker || mint.substring(0, 6)} - Monitoramento finalizado (todos TPs completos)`);
-      return;
-    }
-
-    // Se saldo é zero mas nem todos os TPs foram executados, pausar posição
-    if (balance.amount === 0n && !allTPsCompleted) {
-      this.stopMonitoring(mint);
-      stateService.pausePosition(mint);
-      logger.warn(`${pos.ticker || mint.substring(0, 6)} - Posição pausada (saldo zero)`);
-      return;
-    }
-
-    const currentPrice = await jupiterService.getUsdPrice(mint);
-    if (!currentPrice) {
-      // Emitir evento de preço não encontrado
-      botEventEmitter.emit('monitor:price_stale', {
-        mint,
-        lastUpdate: pos.priceHistory?.slice(-1)[0]?.timestamp || 'never',
-        staleSince: Date.now()
-      });
-      return;
-    }
-
-    const multiple = currentPrice / pos.entryUsd;
-    const percentChange = ((multiple - 1) * 100).toFixed(2);
-
-    // Emitir evento de verificação de preço
-    botEventEmitter.emit('monitor:price_check', {
+    // Emitir evento de monitoramento iniciado (event-driven)
+    botEventEmitter.emit('monitor:started', {
       mint,
-      currentPrice,
-      multiple
-    });
-
-    // Atualizar histórico de preços
-    stateService.updatePrice(mint, currentPrice);
-
-    // Obter posição atualizada após update
-    const updatedPos = stateService.getPosition(mint);
-    if (!updatedPos) return;
-
-    // Emitir evento de atualização de posição (both typed and legacy)
-    const positionData = {
-      ticker: updatedPos.ticker || mint.substring(0, 6),
-      currentPrice,
-      multiple,
-      percentChange: Number(percentChange),
-      highestMultiple: updatedPos.highestMultiple || multiple
-    };
-
-    botEventEmitter.emit('position:updated', {
-      mint,
-      ...positionData
-    });
-
-    // Manter compatibilidade com callback antigo
-    this.emitPositionUpdate(mint, {
-      ...updatedPos,
-      currentMultiple: multiple,
-      percentChange: Number(percentChange),
-      currentBalance: balance.amount,
-      balanceFormatted: balance.amount > 0n
-        ? (Number(balance.amount) / Math.pow(10, balance.decimals)).toFixed(2)
-        : '0'
-    });
-
-    // Encontrar próximo TP usando WebConfigManager
-    const stages = webConfigManager.getStages().filter(s => s.enabled);
-    const nextTp = stages.find(s => !updatedPos.sold?.[s.id]);
-    const nextTpText = nextTp
-      ? `→ ${nextTp.name.toUpperCase()} (${nextTp.multiple}x)`
-      : 'Concluído';
-
-    const ticker = updatedPos.ticker || mint.substring(0, 6);
-
-    logger.position(
       ticker,
-      multiple,
-      (percentChange >= '0' ? '+' : '') + percentChange,
-      nextTpText,
-      updatedPos.highestMultiple || multiple
-    );
+      interval: jupiterService.getOptimalPriceCheckInterval()
+    });
 
-    // Verificar TPs dinâmicos
-    for (const stage of stages) {
-      if (updatedPos.sold?.[stage.id]) continue;
-
-      if (multiple >= stage.multiple) {
-        // Buscar saldo atualizado antes de vender
-        const currentBalance = await solanaService.getTokenBalance(mint);
-
-        if (currentBalance.amount <= 0n) {
-          logger.warn(`Sem saldo para ${stage.name}`);
-          stateService.markStageSold(mint, stage.id);
-          continue;
-        }
-
-        // Calcular quanto vender baseado no percentual
-        let sellAmount: bigint;
-        if (stage.sellPercent >= 100) {
-          sellAmount = currentBalance.amount;
-        } else {
-          sellAmount = (currentBalance.amount * BigInt(stage.sellPercent)) / 100n;
-          if (sellAmount <= 0n) sellAmount = currentBalance.amount;
-        }
-
-        // Emitir evento de take profit atingido
-        botEventEmitter.emit('takeprofit:triggered', {
-          mint,
-          ticker,
-          stage: stage.name,
-          multiple,
-          percentage: stage.sellPercent
-        });
-
-        logger.success(
-          `${stage.name.toUpperCase()} atingido! ${multiple.toFixed(2)}x → Vendendo ${stage.sellPercent}%`
-        );
-
-        const success = await this.sellToken(mint, sellAmount, ticker, stage.id);
-        if (success) {
-          stateService.markStageSold(mint, stage.id);
-        }
-      }
-    }
+    logger.debug(`📈 ${ticker} registrado no PriceMonitorService (event-driven)`);
   }
 
-  stopMonitoring(mint: string): void {
+  // ✅ MÉTODO REMOVIDO: checkPosition() era usado com setInterval
+  // Toda lógica foi migrada para handlePriceUpdate() que é chamado via eventos
+
+  /**
+   * Parar monitoramento de uma posição (EVENT-DRIVEN)
+   */
+  stopMonitoring(mint: string, reason: string = 'Manual stop or completion'): void {
+    const pos = stateService.getPosition(mint);
+    const ticker = pos?.ticker || mint.substring(0, 6);
+
+    // 🚀 REMOVER DO PRICE MONITOR SERVICE AO INVÉS DE clearInterval
+    if (priceMonitorService.isMonitoring(mint)) {
+      priceMonitorService.unregisterToken(mint, reason);
+      logger.debug(`📉 ${ticker} removido do PriceMonitorService (${reason})`);
+    }
+
+    // Limpar interval antigo (compatibilidade durante migração)
     const intervalId = this.monitoringIntervals.get(mint);
     if (intervalId) {
       clearInterval(intervalId);
       this.monitoringIntervals.delete(mint);
-
-      // Emitir evento de monitoramento parado
-      const pos = stateService.getPosition(mint);
-      botEventEmitter.emit('monitor:stopped', {
-        mint,
-        ticker: pos?.ticker || mint.substring(0, 6),
-        reason: 'Manual stop or completion'
-      });
+      logger.debug(`🔄 ${ticker} interval legado removido`);
     }
+
+    // Emitir evento de monitoramento parado
+    botEventEmitter.emit('monitor:stopped', {
+      mint,
+      ticker,
+      reason
+    });
+
+    logger.info(`⏹️ ${ticker} monitoramento parado: ${reason}`);
   }
 
+  /**
+   * Parar todo monitoramento (EVENT-DRIVEN)
+   */
   stopAllMonitoring(): void {
+    // 🚀 USAR PRICE MONITOR SERVICE PARA OBTER LISTA DE TOKENS
+    const monitoredTokens = priceMonitorService.getMonitoredTokens();
+
+    logger.info(`⏹️ Parando monitoramento de ${monitoredTokens.length} posições...`);
+
+    // Parar monitoramento de cada token
+    monitoredTokens.forEach(token => {
+      this.stopMonitoring(token.mint, 'Bot stopped - stopping all monitoring');
+    });
+
+    // Limpar intervals legados (compatibilidade durante migração)
     this.monitoringIntervals.forEach((intervalId, mint) => {
       clearInterval(intervalId);
     });
     this.monitoringIntervals.clear();
+
+    logger.success('✅ Todo monitoramento de preços parado');
   }
 
   private sleep(ms: number): Promise<void> {

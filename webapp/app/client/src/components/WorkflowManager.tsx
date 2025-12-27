@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api, getErrorMessage } from '../lib/eden-api';
-import type { Node, Edge } from '@xyflow/react';
+import { type Node, type Edge } from '@xyflow/react';
 import { WorkflowCanvas } from './WorkflowCanvas';
 
 interface WorkflowNode {
