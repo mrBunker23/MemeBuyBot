@@ -77,24 +77,25 @@ export class WorkflowController {
         };
       }
 
-      if (!workflowData.nodes || workflowData.nodes.length === 0) {
-        ctx.set.status = 400;
-        return {
-          success: false,
-          error: 'Workflow deve ter pelo menos um node'
-        };
-      }
+      // Permitir workflows vazios para começar a editar
+      // if (!workflowData.nodes || workflowData.nodes.length === 0) {
+      //   ctx.set.status = 400;
+      //   return {
+      //     success: false,
+      //     error: 'Workflow deve ter pelo menos um node'
+      //   };
+      // }
 
-      // Validar nodes e conexões
-      const validation = await this.validateWorkflow(workflowData);
-      if (!validation.isValid) {
-        ctx.set.status = 400;
-        return {
-          success: false,
-          error: 'Validation failed',
-          details: validation.errors
-        };
-      }
+      // Permitir criação de workflows vazios - validação só durante execução
+      // const validation = await this.validateWorkflow(workflowData);
+      // if (!validation.isValid) {
+      //   ctx.set.status = 400;
+      //   return {
+      //     success: false,
+      //     error: 'Validation failed',
+      //     details: validation.errors
+      //   };
+      // }
 
       const workflow = await WorkflowStorageService.createWorkflow(workflowData);
 

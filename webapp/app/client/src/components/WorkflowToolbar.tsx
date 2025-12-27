@@ -3,7 +3,7 @@
 import React from 'react';
 import { Save, Play, Square, Trash2, Download, Upload, Zap, BarChart3, RefreshCw } from 'lucide-react';
 
-interface WorkflowStats {
+interface WorkflowCanvasStats {
   triggers: number;
   conditions: number;
   actions: number;
@@ -18,7 +18,7 @@ interface WorkflowToolbarProps {
   onClear?: () => void;
   onExport?: () => void;
   onImport?: () => void;
-  stats: WorkflowStats;
+  stats: WorkflowCanvasStats;
   readOnly?: boolean;
   isExecuting?: boolean;
   onStopExecution?: () => void;
@@ -127,19 +127,7 @@ export function WorkflowToolbar({
                 </button>
               )}
 
-              <div className="w-px h-6 bg-gray-300"></div>
-
-              {/* Salvar workflow */}
-              <button
-                onClick={onSave}
-                className="flex items-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium"
-                title="Salvar workflow"
-              >
-                <Save size={14} />
-                <span className="hidden sm:inline">Salvar</span>
-              </button>
-
-              <div className="w-px h-6 bg-gray-300"></div>
+              {/* Botão Salvar removido - mantido apenas no header da página */}
             </>
           )}
 

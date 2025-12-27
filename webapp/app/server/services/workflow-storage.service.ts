@@ -131,6 +131,9 @@ class WorkflowStorageService {
 
     const newWorkflow: Workflow = {
       ...workflow,
+      // Garantir defaults para arrays vazios
+      nodes: workflow.nodes || [],
+      connections: workflow.connections || [],
       id: this.generateId(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -142,9 +145,10 @@ class WorkflowStorageService {
       throw new Error('Nome do workflow é obrigatório');
     }
 
-    if (newWorkflow.nodes.length === 0) {
-      throw new Error('Workflow deve ter pelo menos um node');
-    }
+    // Permitir workflows vazios para começar a editar
+    // if (newWorkflow.nodes.length === 0) {
+    //   throw new Error('Workflow deve ter pelo menos um node');
+    // }
 
     this.cache.set(newWorkflow.id, newWorkflow);
     await this.saveCache();
