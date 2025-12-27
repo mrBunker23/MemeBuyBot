@@ -32,9 +32,84 @@ export function WorkflowEditorPage() {
           setCurrentWorkflow(workflow);
           setWorkflowName(workflow.name);
           setWorkflowDescription(workflow.description || '');
-          setCurrentNodes(workflow.nodes || []);
-          setCurrentEdges(workflow.edges || []);
-          console.log('📂 Workflow carregado:', workflow.name);
+
+          // Se nodes está vazio mas há connections, reconstruir nodes baseado nas connections
+          let nodesToUse = workflow.nodes && workflow.nodes.length > 0
+            ? workflow.nodes
+            : [];
+
+          const edgesToUse = workflow.edges || [];
+
+          // Reconstruir nodes se estão vazios mas há connections
+          if (nodesToUse.length === 0 && edgesToUse.length > 0) {
+            console.log('🔧 Reconstruindo nodes baseado nas conexões...');
+            const nodeIds = new Set<string>();
+
+            // Extrair IDs únicos dos nodes das conexões
+            edgesToUse.forEach((edge: any) => {
+              if (edge.source) nodeIds.add(edge.source);
+              if (edge.target) nodeIds.add(edge.target);
+            });
+
+            // Criar nodes básicos para cada ID encontrado
+            nodesToUse = Array.from(nodeIds).map((nodeId, index) => {
+              const nodeType = nodeId.includes('trigger') ? 'triggerNode'
+                : nodeId.includes('condition') ? 'conditionNode'
+                : nodeId.includes('action') ? 'actionNode'
+                : 'utilityNode';
+
+              const label = nodeId.includes('trigger') ? '📊 Price Change'
+                : nodeId.includes('condition') ? 'Multiple Above'
+                : nodeId.includes('action') ? 'Sell 25%'
+                : 'Utility Node';
+
+              const color = nodeId.includes('trigger') ? '#16a34a'
+                : nodeId.includes('condition') ? '#f59e0b'
+                : nodeId.includes('action') ? '#dc2626'
+                : '#9333ea';
+
+              return {
+                id: nodeId,
+                type: nodeType,
+                position: { x: 100 + (index * 300), y: 100 },
+                data: {
+                  label,
+                  nodeType: nodeType.replace('Node', ''),
+                  config: {}
+                },
+                style: {
+                  background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
+                  border: `2px solid ${color}dd`,
+                  borderRadius: '12px',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  width: 180,
+                  height: 70,
+                }
+              };
+            });
+
+            console.log(`🔧 ${nodesToUse.length} nodes reconstruídos:`, nodesToUse.map(n => n.id));
+          }
+
+          setCurrentNodes(nodesToUse);
+          setCurrentEdges(edgesToUse);
+
+          console.log('📂 Workflow carregado:', {
+            name: workflow.name,
+            backendNodes: workflow.nodes?.length || 0,
+            backendEdges: workflow.edges?.length || 0,
+            usedNodes: nodesToUse.length,
+            usedEdges: edgesToUse.length,
+            reason: workflow.nodes?.length > 0 ? 'backend' : 'reconstruído das conexões'
+          });
+
+          // Se nodes foram reconstruídos, marcar como não salvo para forçar salvamento
+          if (workflow.nodes?.length === 0 && nodesToUse.length > 0) {
+            setHasUnsavedChanges(true);
+            console.log('🔧 Nodes reconstruídos - marcando como não salvo para forçar update');
+          }
         } else {
           console.warn('⚠️ Workflow não encontrado:', id);
           alert('Workflow não encontrado');
@@ -141,16 +216,47 @@ export function WorkflowEditorPage() {
       const nodesToSave = nodes || currentNodes;
       const edgesToSave = edges || currentEdges;
 
+      // Debug: verificar o que está sendo salvo
+      console.log('🔍 Dados antes de salvar:', {
+        parametroNodes: nodes?.length || 'undefined',
+        parametroEdges: edges?.length || 'undefined',
+        currentNodesState: currentNodes.length,
+        currentEdgesState: currentEdges.length,
+        nodesToSaveLength: Array.isArray(nodesToSave) ? nodesToSave.length : 'NOT ARRAY',
+        edgesToSaveLength: Array.isArray(edgesToSave) ? edgesToSave.length : 'NOT ARRAY',
+        nodesToSave: Array.isArray(nodesToSave) ? nodesToSave.map(n => ({ id: n.id, type: n.type, position: n.position })) : nodesToSave,
+        edgesToSave: Array.isArray(edgesToSave) ? edgesToSave.map(e => ({ id: e.id, source: e.source, target: e.target })) : edgesToSave
+      });
+
+      // Proteção: garantir arrays válidos
+      const safeNodesToSave = Array.isArray(nodesToSave) ? nodesToSave : [];
+      const safeEdgesToSave = Array.isArray(edgesToSave) ? edgesToSave : [];
+
+      // Remover edges duplicadas por ID
+      const uniqueEdgesToSave = safeEdgesToSave.filter((edge, index, arr) =>
+        arr.findIndex(e => e.id === edge.id) === index
+      );
+
+      console.log(`🔧 Edges filtradas: ${safeEdgesToSave.length} → ${uniqueEdgesToSave.length} (removidas ${safeEdgesToSave.length - uniqueEdgesToSave.length} duplicatas)`);
+
+      // Verificação de segurança: se nodesToSave está vazio mas há edgesToSave, algo está errado
+      if (safeNodesToSave.length === 0 && uniqueEdgesToSave.length > 0) {
+        console.error('⚠️ PROBLEMA: Tentando salvar edges sem nodes! Isso vai quebrar o workflow.');
+        alert('Erro: Nodes não encontrados para salvar. Tente recarregar a página e editar novamente.');
+        return;
+      }
+
       if (currentWorkflow) {
         // Atualizar workflow existente
         const updatedWorkflow = {
           ...currentWorkflow,
           name: workflowName,
           description: workflowDescription,
-          nodes: nodesToSave,
-          edges: edgesToSave,
+          nodes: safeNodesToSave,
+          edges: uniqueEdgesToSave,
         };
 
+        console.log('💾 Workflow a ser enviado:', updatedWorkflow);
         await workflowApiService.saveWorkflow(updatedWorkflow);
         setHasUnsavedChanges(false);
         console.log('💾 Workflow salvo:', workflowName);
@@ -162,8 +268,8 @@ export function WorkflowEditorPage() {
         // Atualizar com nodes e edges
         const updatedWorkflow = {
           ...newWorkflow,
-          nodes: nodesToSave,
-          edges: edgesToSave,
+          nodes: safeNodesToSave,
+          edges: uniqueEdgesToSave,
         };
 
         await workflowApiService.saveWorkflow(updatedWorkflow);
