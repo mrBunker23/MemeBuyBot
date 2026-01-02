@@ -1,4 +1,4 @@
-import { config, STAGES } from '../config';
+import { config, STAGES, STOP_LOSSES } from '../config';
 import { jupiterService } from './jupiter.service';
 import { solanaService } from './solana.service';
 import { stateService } from './state.service';
@@ -134,12 +134,17 @@ class TradingService {
       // Usar ticker do state ao invés de substring
       const ticker = pos.ticker || mint.substring(0, 6);
 
-      // Calcular TPs vendidos
+      // Calcular TPs e SLs vendidos
       const soldTPs = [];
       if (pos.sold?.tp1) soldTPs.push('tp1');
       if (pos.sold?.tp2) soldTPs.push('tp2');
       if (pos.sold?.tp3) soldTPs.push('tp3');
       if (pos.sold?.tp4) soldTPs.push('tp4');
+      if (pos.sold?.sl1) soldTPs.push('sl1');
+      if (pos.sold?.sl2) soldTPs.push('sl2');
+      if (pos.sold?.sl3) soldTPs.push('sl3');
+      if (pos.sold?.sl4) soldTPs.push('sl4');
+      if (pos.sold?.sl5) soldTPs.push('sl5');
 
       // Formatar saldo
       const balanceFormatted = balance.amount > 0n
@@ -194,6 +199,50 @@ class TradingService {
           const success = await this.sellToken(mint, sellAmount, ticker, stage.name);
           if (success) {
             stateService.markStageSold(mint, stage.name);
+          }
+        }
+      }
+
+      // Verificar stop-losses se configurados
+      if (STOP_LOSSES.length > 0) {
+        for (const stopLoss of STOP_LOSSES) {
+          // Verificar se este stop-loss já foi executado
+          if (pos.sold?.[stopLoss.name as keyof typeof pos.sold]) continue;
+
+          // Verificar se o múltiplo atual atingiu o stop-loss
+          if (multiple <= stopLoss.multiple) {
+            // Buscar saldo atualizado antes de vender
+            const currentBalance = await solanaService.getTokenBalance(mint);
+
+            if (currentBalance.amount <= 0n) {
+              logger.warn(`Sem saldo para ${stopLoss.name}`);
+              stateService.markStageSold(mint, stopLoss.name);
+              continue;
+            }
+
+            // Calcular quanto vender baseado no percentual
+            let sellAmount: bigint;
+            if (stopLoss.sellPercent >= 100) {
+              sellAmount = currentBalance.amount;
+            } else {
+              sellAmount = (currentBalance.amount * BigInt(stopLoss.sellPercent)) / 100n;
+              if (sellAmount <= 0n) sellAmount = currentBalance.amount;
+            }
+
+            logger.warn(
+              `🛡️ ${stopLoss.name.toUpperCase()} ativado! ${multiple.toFixed(2)}x (${percentChange}%) → Vendendo ${stopLoss.sellPercent}%`
+            );
+
+            const success = await this.sellToken(mint, sellAmount, ticker, stopLoss.name);
+            if (success) {
+              stateService.markStageSold(mint, stopLoss.name);
+
+              // Se vendeu 100% no stop-loss, finalizar monitoramento
+              if (stopLoss.sellPercent >= 100) {
+                logger.info(`${ticker} - Monitoramento finalizado (Stop-Loss total)`);
+                return;
+              }
+            }
           }
         }
       }

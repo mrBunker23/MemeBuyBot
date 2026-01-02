@@ -5,6 +5,7 @@ import { tradingService } from './services/trading.service';
 import { stateService } from './services/state.service';
 import { solanaService } from './services/solana.service';
 import { jupiterService } from './services/jupiter.service';
+import { buySchedulerService } from './services/buy-scheduler.service';
 import { logger } from './utils/logger';
 import { statusMonitor } from './utils/status-monitor';
 
@@ -92,22 +93,8 @@ async function main(): Promise<void> {
 
         logger.success(`NOVO: ${token.ticker} (score ${token.score}) ✅`);
 
-        // Só marca como visto quando compra
-        stateService.markAsSeen(mint);
-
-        const bought = await tradingService.buyToken(mint, token.ticker);
-        if (!bought) continue;
-
-        const entryUsd = await tradingService.getEntryPrice(mint);
-        stateService.createPosition(mint, token.ticker, entryUsd, config.amountSol);
-
-        if (entryUsd) {
-          logger.info(`${token.ticker} entrada: $${entryUsd.toFixed(6)}`);
-        }
-
-        tradingService
-          .monitorPosition(mint)
-          .catch((e) => logger.error(`Monitor ${token.ticker}`, e));
+        // Agendar compra com delay configurável
+        buySchedulerService.scheduleTokenBuy(mint, token.ticker);
       }
     } catch (error) {
       logger.error('Erro no loop principal', error);
@@ -115,7 +102,21 @@ async function main(): Promise<void> {
   }, config.checkIntervalMs);
 }
 
+// Handler para encerramento graceful
+process.on('SIGINT', () => {
+  logger.info('🛑 Encerrando aplicação...');
+  buySchedulerService.cancelAllScheduled();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  logger.info('🛑 Encerrando aplicação...');
+  buySchedulerService.cancelAllScheduled();
+  process.exit(0);
+});
+
 main().catch((error) => {
   console.error('❌ FATAL:', error);
+  buySchedulerService.cancelAllScheduled();
   process.exit(1);
 });

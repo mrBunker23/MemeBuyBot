@@ -21,9 +21,12 @@ Bot automatizado para trading de tokens Solana com monitoramento inteligente, ta
 
 - 🔍 **Scraping Automático**: Monitora site da Gangue Macaco Club em tempo real
 - 🎯 **Filtro por Score**: Configura score mínimo para comprar tokens
+- ⏳ **Delay Configurável**: Aguarda tempo definido antes de executar compra
 - 💰 **Take Profit Inteligente**: 4 níveis configuráveis (TP1, TP2, TP3, TP4)
+- 🛡️ **Stop-Loss Avançado**: Até 5 níveis de stop-loss configuráveis
 - 📊 **Interface Visual**: Tabela colorida com status em tempo real
 - 🔄 **Monitoramento Contínuo**: Acompanha preço e performance dos tokens
+- ⚙️ **Configuração Dinâmica**: Altera estratégias em tempo real
 - 💾 **Estado Persistente**: Salva posições e histórico em `state.json`
 - 🚀 **Alta Performance**: Usa requisições HTTP diretas ao invés de navegador headless
 
@@ -164,6 +167,11 @@ SLIPPAGE_BPS=300
 # Valores sugeridos: 15-50 para tokens mais seguros
 MIN_SCORE=15
 
+# Delay antes de executar compra em ms (padrão: 0 = imediato)
+# Útil para aguardar estabilização do preço ou análise adicional
+# Exemplo: 5000 = aguarda 5 segundos antes de comprar
+BUY_DELAY_MS=0
+
 # =====================================
 # TAKE PROFIT (TP) - ESTRATÉGIA DE VENDA
 # =====================================
@@ -183,6 +191,33 @@ TP3_SELL_PERCENT=50
 # TP4: Quarto Take Profit (quando o token faz 5x, vende tudo)
 TP4_MULTIPLE=5
 TP4_SELL_PERCENT=100
+
+# =====================================
+# STOP-LOSS (SL) - PROTEÇÃO CONTRA PERDAS
+# =====================================
+# CONFIGURAÇÕES OPCIONAIS - Só defina se quiser usar stop-loss
+# Formato: Multiple (múltiplo de perda) e Sell Percent (% para vender)
+# Multiple deve ser < 1 (0.8 = -20%, 0.6 = -40%, 0.4 = -60%)
+
+# Exemplo de configuração conservadora (descomente para usar):
+
+# SL1: Primeiro Stop-Loss (-10%, vende 25% da posição)
+# SL1_MULTIPLE=0.9
+# SL1_SELL_PERCENT=25
+
+# SL2: Segundo Stop-Loss (-20%, vende 50% do restante)
+# SL2_MULTIPLE=0.8
+# SL2_SELL_PERCENT=50
+
+# SL3: Terceiro Stop-Loss (-30%, vende 100% - saída total)
+# SL3_MULTIPLE=0.7
+# SL3_SELL_PERCENT=100
+
+# Exemplo de configuração agressiva:
+# SL1_MULTIPLE=0.5    # -50%, vende 50%
+# SL1_SELL_PERCENT=50
+# SL2_MULTIPLE=0.2    # -80%, vende 100%
+# SL2_SELL_PERCENT=100
 
 # =====================================
 # CONFIGURAÇÕES AVANÇADAS
@@ -235,6 +270,8 @@ bun run dev
    TP3: 4x → vende 50%
    TP4: 5x → vende 100%
 
+🛡️ Stop-Loss: Desativado
+
 📡 API Jupiter:
    Chamadas: 0
    Última: Nenhuma ainda
@@ -260,6 +297,101 @@ bun run dev
 
 ---
 
+## 🛡️ Sistema de Stop-Loss
+
+O bot agora suporta stop-loss automático para proteger contra perdas. Esta funcionalidade é **opcional** e pode ser configurada com até 5 níveis independentes.
+
+### Como Funciona
+
+- **Múltiplos de Perda**: Valores abaixo de 1.0 (0.8 = -20%, 0.6 = -40%)
+- **Venda Parcial**: Vende apenas uma porcentagem a cada nível
+- **Venda Total**: Configure 100% no último nível para saída completa
+- **Ordem Decrescente**: SL1 deve ter múltiplo maior que SL2, etc.
+
+### Exemplos de Configuração
+
+#### 🔰 Iniciante (Conservador)
+Proteção rigorosa com perdas pequenas:
+
+```env
+# Primeira queda significativa: vende um pouco
+SL1_MULTIPLE=0.9     # -10%
+SL1_SELL_PERCENT=25  # Vende 25%
+
+# Segunda queda: vende mais
+SL2_MULTIPLE=0.8     # -20%
+SL2_SELL_PERCENT=50  # Vende 50% do restante
+
+# Terceira queda: sai totalmente
+SL3_MULTIPLE=0.7     # -30%
+SL3_SELL_PERCENT=100 # Vende tudo
+```
+
+**Resultado**: Perdas máximas limitadas a -30%.
+
+#### 🎯 Intermediário (Equilibrado)
+Balance entre proteção e potencial:
+
+```env
+SL1_MULTIPLE=0.7     # -30%
+SL1_SELL_PERCENT=50  # Vende metade
+
+SL2_MULTIPLE=0.5     # -50%
+SL2_SELL_PERCENT=100 # Vende tudo
+```
+
+**Resultado**: Permite alguma volatilidade, mas protege contra crashes.
+
+#### ⚡ Avançado (Agressivo)
+Para quem aceita alto risco:
+
+```env
+SL1_MULTIPLE=0.3     # -70%
+SL1_SELL_PERCENT=100 # Vende tudo apenas em crash severo
+```
+
+**Resultado**: Máxima exposição ao upside, proteção apenas contra ruína total.
+
+### Combinando Take-Profit + Stop-Loss
+
+O sistema funciona independentemente. Exemplos de cenários:
+
+```
+Token comprado a $1.00:
+
+📈 Cenário Positivo:
+$2.00 (2x) → TP1: vende 25%
+$5.00 (5x) → TP2: vende 50% do restante
+$10.00 (10x) → TP3: vende tudo
+
+📉 Cenário Negativo:
+$0.80 (-20%) → SL1: vende 50%
+$0.60 (-40%) → SL2: vende tudo
+
+🔄 Cenário Misto:
+$2.00 (2x) → TP1: vende 25%
+$1.50 (1.5x) → Token cai...
+$0.80 (-20% do preço original) → SL1: vende restante
+```
+
+### Alteração Dinâmica
+
+Você pode alterar stop-losses durante a execução usando o sistema de configuração dinâmica:
+
+```typescript
+import { configManager } from './src/config/config-manager';
+
+// Ativar stop-loss conservador
+configManager.setStopLosses([
+  { name: 'sl1', multiple: 0.9, sellPercent: 100 }
+]);
+
+// Desativar stop-loss
+configManager.setStopLosses([]);
+```
+
+---
+
 ## 🎯 Configurações Avançadas
 
 ### Score Mínimo
@@ -274,6 +406,30 @@ MIN_SCORE=50   # Muito seletivo
 ```
 
 **Como funciona**: O bot monitora todos os tokens, mas só compra quando o score atinge o mínimo. Se um token começa com score 10 e sobe para 20, o bot compra automaticamente.
+
+### Delay na Compra
+
+Configure um tempo de espera antes de executar a compra:
+
+```env
+BUY_DELAY_MS=0       # Imediato (padrão)
+BUY_DELAY_MS=5000    # Aguarda 5 segundos
+BUY_DELAY_MS=30000   # Aguarda 30 segundos
+```
+
+**Benefícios**:
+- ⏱️ **Análise de estabilidade**: Aguarda para ver se o preço se estabiliza
+- 🚫 **Evita front-running**: Não compra instantaneamente como outros bots
+- 🧠 **Decisão melhor**: Tempo para o mercado "digerir" a nova listagem
+- 🔄 **Flexível**: Pode testar diferentes estratégias de timing
+
+**Como funciona**: Quando uma nova moeda é detectada, o bot agenda a compra para ser executada após o delay configurado. Você verá logs como:
+
+```
+🕒 BITCOIN agendado para compra em 5000ms (14:35:20)
+🎯 BITCOIN - executando compra agendada!
+💰 BITCOIN entrada: $0.000123
+```
 
 ### Estratégia de Take Profit
 

@@ -44,10 +44,15 @@ class StateService {
       entryAmountSol,
       currentPrice: entryUsd,
       highestPrice: entryUsd,
+      lowestPrice: entryUsd,
       highestMultiple: 1,
+      lowestMultiple: 1,
       createdAt: now,
       lastUpdated: now,
-      sold: { tp1: false, tp2: false, tp3: false, tp4: false },
+      sold: {
+        tp1: false, tp2: false, tp3: false, tp4: false,
+        sl1: false, sl2: false, sl3: false, sl4: false, sl5: false
+      },
       priceHistory: entryUsd ? [{
         timestamp: now,
         price: entryUsd,
@@ -67,7 +72,9 @@ class StateService {
       pos.entryUsd = entryUsd;
       pos.currentPrice = entryUsd;
       pos.highestPrice = entryUsd;
+      pos.lowestPrice = entryUsd;
       pos.highestMultiple = 1;
+      pos.lowestMultiple = 1;
       pos.priceHistory = [{
         timestamp: new Date().toISOString(),
         price: entryUsd,
@@ -90,6 +97,12 @@ class StateService {
       if (currentPrice > (pos.highestPrice || 0)) {
         pos.highestPrice = currentPrice;
         pos.highestMultiple = multiple;
+      }
+
+      // Atualizar menor preço (para stop-loss)
+      if (pos.lowestPrice === null || currentPrice < pos.lowestPrice) {
+        pos.lowestPrice = currentPrice;
+        pos.lowestMultiple = multiple;
       }
 
       // Adicionar ao histórico (máximo 100 entradas)
@@ -152,9 +165,14 @@ class StateService {
       pos.entryUsd = newEntryPrice;
       pos.currentPrice = newEntryPrice;
       pos.highestPrice = newEntryPrice;
+      pos.lowestPrice = newEntryPrice;
       pos.highestMultiple = 1;
+      pos.lowestMultiple = 1;
       pos.lastUpdated = now;
-      pos.sold = { tp1: false, tp2: false, tp3: false, tp4: false };
+      pos.sold = {
+        tp1: false, tp2: false, tp3: false, tp4: false,
+        sl1: false, sl2: false, sl3: false, sl4: false, sl5: false
+      };
       pos.priceHistory = [{
         timestamp: now,
         price: newEntryPrice,
